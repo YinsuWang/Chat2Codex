@@ -1,6 +1,6 @@
 import { Command } from "commander";
 
-import { startBridge, type BridgeRuntime } from "../../bridge/runtime.js";
+import { startBridge } from "../../bridge/runtime.js";
 import { CodexCLIAdapter } from "../../codex/cli-adapter.js";
 import { startDaemon } from "../../supervisor/daemon.js";
 import { Supervisor } from "../../supervisor/supervisor.js";
@@ -17,26 +17,22 @@ export function createStartCommand(): Command {
       const supervisor = new Supervisor(workspace, {
         codexAdapter: new CodexCLIAdapter(),
       });
-      let bridge: BridgeRuntime | null = null;
 
-      try {
-        await startDaemon(supervisor, {
-          onAcquired: async () => {
-            bridge = await startBridge({ workspace });
-            if (options.json) {
-              process.stdout.write(
-                `${JSON.stringify({
-                  workspace_id: workspace.workspace_id,
-                  status: "starting",
-                  bridge_host: bridge.host,
-                  bridge_port: bridge.port,
-                })}\n`,
-              );
-            }
-          },
-        });
-      } finally {
-        if (bridge) await bridge.close();
-      }
+      await startDaemon(supervisor, {
+        onAcquired: async () => {
+          const bridge = await startBridge({ workspace });
+          if (options.json) {
+            process.stdout.write(
+              `${JSON.stringify({
+                workspace_id: workspace.workspace_id,
+                status: "starting",
+                bridge_host: bridge.host,
+                bridge_port: bridge.port,
+              })}\n`,
+            );
+          }
+          return () => bridge.close();
+        },
+      });
     });
 }

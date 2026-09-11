@@ -11,10 +11,12 @@ interface DaemonLock {
   workspace_id: string;
 }
 
+type DaemonCleanup = () => Promise<void>;
+
 export interface StartDaemonOptions {
   pollMs?: number;
   signal?: AbortSignal;
-  onAcquired?: () => Promise<void>;
+  onAcquired?: () => Promise<DaemonCleanup | undefined>;
 }
 
 function lockPath(workspaceId: string): string {
@@ -87,8 +89,9 @@ export async function startDaemon(
   process.once("SIGTERM", stop);
   options.signal?.addEventListener("abort", externalAbort, { once: true });
 
+  let cleanup: DaemonCleanup | undefined;
   try {
-    await options.onAcquired?.();
+    cleanup = await options.onAcquired?.();
     await supervisor.recoverInterruptedTasks();
     while (!controller.signal.aborted) {
       await supervisor.tick();
@@ -105,6 +108,7 @@ export async function startDaemon(
       });
     }
   } finally {
+    if (cleanup) await cleanup();
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
     options.signal?.removeEventListener("abort", externalAbort);
