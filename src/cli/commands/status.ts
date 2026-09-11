@@ -24,23 +24,30 @@ export function createStatusCommand(): Command {
         getDaemonLock(workspace.workspace_id),
         getBridgeRuntime(workspace.workspace_id),
       ]);
+      const activeReason = active?.history.at(-1)?.reason ?? null;
       const result = {
         workspace_id: workspace.workspace_id,
         workspace_name: workspace.workspace_name,
         daemon_pid: lock?.pid ?? null,
         bridge: bridge ? { host: bridge.host, port: bridge.port, pid: bridge.pid } : null,
         active_task: active
-          ? { task_id: active.task_id, state: active.state, iteration: active.iteration }
+          ? {
+              task_id: active.task_id,
+              state: active.state,
+              iteration: active.iteration,
+              reason: activeReason,
+            }
           : null,
       };
       if (options.json) {
         process.stdout.write(`${JSON.stringify(result)}\n`);
       } else {
+        const reason = activeReason ? ` (${activeReason})` : "";
         process.stdout.write(
           `${workspace.workspace_name} (${workspace.workspace_id})\n` +
             `Daemon: ${result.daemon_pid ?? "stopped"}\n` +
             `Bridge: ${bridge ? `${bridge.host}:${bridge.port}` : "stopped"}\n` +
-            `Task: ${active ? `${active.task_id} ${active.state} #${active.iteration}` : "none"}\n`,
+            `Task: ${active ? `${active.task_id} ${active.state} #${active.iteration}${reason}` : "none"}\n`,
         );
       }
     });

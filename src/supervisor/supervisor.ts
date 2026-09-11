@@ -8,7 +8,7 @@ import { ExecutionRecorder } from "../execution/recorder.js";
 import type { PlanMessage } from "../protocol/types.js";
 import { TaskService } from "../task/service.js";
 import { TaskStore, type TaskRecord } from "../task/store.js";
-import { WorktreeManager } from "../workspace/worktree.js";
+import { WorktreeManager, type TaskWorktree } from "../workspace/worktree.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -108,8 +108,22 @@ export class Supervisor {
     }
     if (task.state !== "PLANNED") return;
 
-    await this.worktreeManager.validateBase(task, this.workspace);
-    const worktree = await this.worktreeManager.create(task, this.workspace);
+    let worktree: TaskWorktree;
+    try {
+      await this.worktreeManager.validateBase(task, this.workspace);
+      worktree = await this.worktreeManager.create(task, this.workspace);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("STALE_BASE")) {
+        await this.taskStore.update(task.task_id, {
+          state: "BLOCKED",
+          reason: "STALE_BASE",
+        });
+        return;
+      }
+      throw error;
+    }
+
     task = await this.taskStore.update(task.task_id, {
       state: "DISPATCHED",
       reason: "WORKTREE_READY",

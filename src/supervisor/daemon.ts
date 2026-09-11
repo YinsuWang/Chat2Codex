@@ -11,6 +11,12 @@ interface DaemonLock {
   workspace_id: string;
 }
 
+export interface StartDaemonOptions {
+  pollMs?: number;
+  signal?: AbortSignal;
+  onAcquired?: () => Promise<void>;
+}
+
 function lockPath(workspaceId: string): string {
   return join(getStateDir(), "daemons", `${workspaceId}.lock`);
 }
@@ -65,7 +71,7 @@ async function acquireLock(workspace: WorkspaceRecord): Promise<DaemonLock> {
 
 export async function startDaemon(
   supervisor: Supervisor,
-  options: { pollMs?: number; signal?: AbortSignal } = {},
+  options: StartDaemonOptions = {},
 ): Promise<void> {
   const pollMs = options.pollMs ?? 750;
   if (!Number.isInteger(pollMs) || pollMs < 100) {
@@ -82,6 +88,7 @@ export async function startDaemon(
   options.signal?.addEventListener("abort", externalAbort, { once: true });
 
   try {
+    await options.onAcquired?.();
     await supervisor.recoverInterruptedTasks();
     while (!controller.signal.aborted) {
       await supervisor.tick();
