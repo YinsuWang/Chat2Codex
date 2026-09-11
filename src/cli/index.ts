@@ -1,6 +1,7 @@
 import { Command } from "commander";
 
 import { createControlCommand } from "./commands/control.js";
+import { createDoctorCommand } from "./commands/doctor.js";
 import { createInitCommand } from "./commands/init.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
@@ -14,5 +15,6 @@ program.addCommand(createInitCommand());
 program.addCommand(createControlCommand());
 program.addCommand(createStartCommand());
 program.addCommand(createStatusCommand());
+program.addCommand(createDoctorCommand());
 
 await program.parseAsync(process.argv);
