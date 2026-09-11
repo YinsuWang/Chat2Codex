@@ -1,4 +1,4 @@
-import type { RequestListener } from "node:http";
+import type { IncomingMessage, RequestListener } from "node:http";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 
 import type { McpToolDependencies } from "../mcp/tools.js";
@@ -24,7 +24,13 @@ export function createBridgeApp(dependencies: McpToolDependencies): RequestListe
       return;
     }
     if (url.pathname === "/mcp") {
-      void nodeMcpHandler(request, response);
+      if (!request.method) {
+        response.statusCode = 400;
+        response.end("Missing HTTP method");
+        return;
+      }
+      const narrowedRequest = request as IncomingMessage & { method: string };
+      void nodeMcpHandler(narrowedRequest, response);
       return;
     }
     response.statusCode = 404;
