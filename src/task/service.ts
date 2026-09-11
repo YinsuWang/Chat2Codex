@@ -1,6 +1,6 @@
 import type { WorkspaceRecord } from "../config/types.js";
 import type { ControlMessage, PlanMessage, ReviewMessage } from "../protocol/types.js";
-import { TaskStore, type TaskRecord } from "./store.js";
+import { TaskStore, type TaskRecord, type TaskUpdate } from "./store.js";
 import { canTransition } from "./state-machine.js";
 
 function reviewFindingsEqual(a: ReviewMessage["findings"], b: ReviewMessage["findings"]): boolean {
@@ -83,8 +83,7 @@ export class TaskService {
       throw new Error(`PLAN_NOT_ALLOWED_IN_STATE: ${existing.state}`);
     }
 
-    return this.store.update(existing.task_id, {
-      state: existing.state === "PLANNED" ? undefined : "PLANNED",
+    const update: TaskUpdate = {
       implementation_mode: message.implementation_mode,
       base_sha: message.base_sha ?? null,
       goal: message.goal,
@@ -94,7 +93,9 @@ export class TaskService {
       patch: message.patch ?? null,
       review_approved: false,
       reason: "PLAN_UPDATED",
-    });
+    };
+    if (existing.state !== "PLANNED") update.state = "PLANNED";
+    return this.store.update(existing.task_id, update);
   }
 
   private async acceptReview(message: ReviewMessage): Promise<TaskRecord> {
@@ -125,16 +126,17 @@ export class TaskService {
 
     if (message.decision === "REVISE") {
       const switchingFromPatch = task.implementation_mode === "patch";
-      return this.store.update(task.task_id, {
+      const update: TaskUpdate = {
         state: "PLANNED",
         iteration: task.iteration + 1,
         implementation_mode: switchingFromPatch ? "guided" : task.implementation_mode,
-        patch: switchingFromPatch ? null : task.patch,
         instructions: [...task.instructions, ...reviewGuidance(message)],
         review_approved: false,
         last_review_findings: message.findings,
         reason: "REVIEW_REVISE",
-      });
+      };
+      if (switchingFromPatch) update.patch = null;
+      return this.store.update(task.task_id, update);
     }
 
     return this.store.update(task.task_id, {
