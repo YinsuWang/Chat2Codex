@@ -1,11 +1,18 @@
 import type { WorkspaceRecord } from "../config/types.js";
-import type {
-  ControlMessage,
-  PlanMessage,
-  ReviewMessage,
-} from "../protocol/types.js";
+import type { ControlMessage, PlanMessage, ReviewMessage } from "../protocol/types.js";
 import { TaskStore, type TaskRecord } from "./store.js";
 import { canTransition } from "./state-machine.js";
+
+function reviewFindingsEqual(a: ReviewMessage["findings"], b: ReviewMessage["findings"]): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function reviewGuidance(message: ReviewMessage): string[] {
+  return message.findings.map((finding) => {
+    const where = finding.file ? ` in ${finding.file}` : "";
+    return `[${finding.severity}]${where}: ${finding.issue} Required change: ${finding.required_change}`;
+  });
+}
 
 export class TaskService {
   constructor(
@@ -15,7 +22,6 @@ export class TaskService {
 
   async acceptControlMessage(message: ControlMessage): Promise<TaskRecord> {
     this.assertWorkspace(message.workspace_id);
-
     switch (message.kind) {
       case "PLAN":
         return this.acceptPlan(message);
@@ -38,9 +44,7 @@ export class TaskService {
 
   private async requireTask(taskId: string): Promise<TaskRecord> {
     const task = await this.store.getOrNull(taskId);
-    if (!task) {
-      throw new Error(`TASK_NOT_FOUND: ${taskId}`);
-    }
+    if (!task) throw new Error(`TASK_NOT_FOUND: ${taskId}`);
     if (task.task_id !== taskId) {
       throw new Error(`TASK_ID_MISMATCH: expected ${taskId}, found ${task.task_id}`);
     }
@@ -95,15 +99,38 @@ export class TaskService {
 
   private async acceptReview(message: ReviewMessage): Promise<TaskRecord> {
     const task = await this.requireTask(message.task_id);
+
+    if (
+      message.decision === "REVISE" &&
+      task.state === "PLANNED" &&
+      message.iteration + 1 === task.iteration &&
+      reviewFindingsEqual(task.last_review_findings, message.findings)
+    ) {
+      return task;
+    }
+    if (
+      message.decision === "PASS" &&
+      task.state === "DONE" &&
+      task.review_approved &&
+      message.iteration === task.iteration &&
+      reviewFindingsEqual(task.last_review_findings, message.findings)
+    ) {
+      return task;
+    }
+
     this.assertIteration(task, message.iteration);
     if (task.state !== "REVIEWING") {
       throw new Error(`REVIEW_NOT_ALLOWED_IN_STATE: ${task.state}`);
     }
 
     if (message.decision === "REVISE") {
+      const switchingFromPatch = task.implementation_mode === "patch";
       return this.store.update(task.task_id, {
         state: "PLANNED",
         iteration: task.iteration + 1,
+        implementation_mode: switchingFromPatch ? "guided" : task.implementation_mode,
+        patch: switchingFromPatch ? null : task.patch,
+        instructions: [...task.instructions, ...reviewGuidance(message)],
         review_approved: false,
         last_review_findings: message.findings,
         reason: "REVIEW_REVISE",

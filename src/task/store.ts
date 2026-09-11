@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, readFile, rename } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, readdir, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { getStateDir } from "../config/paths.js";
@@ -99,9 +99,7 @@ async function readHistory(taskId: string): Promise<TaskHistoryEntry[]> {
       .filter(Boolean)
       .map((line) => JSON.parse(line) as TaskHistoryEntry);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return [];
-    }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
     throw error;
   }
 }
@@ -125,9 +123,7 @@ function descriptorFromPlan(plan: PlanMessage, createdAt: string): TaskDescripto
 export class TaskStore {
   async create(plan: PlanMessage): Promise<TaskRecord> {
     const existing = await this.getOrNull(plan.task_id);
-    if (existing) {
-      throw new Error(`TASK_ALREADY_EXISTS: ${plan.task_id}`);
-    }
+    if (existing) throw new Error(`TASK_ALREADY_EXISTS: ${plan.task_id}`);
 
     const now = new Date().toISOString();
     const descriptor = descriptorFromPlan(plan, now);
@@ -157,11 +153,30 @@ export class TaskStore {
     try {
       return await this.get(taskId);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-        return null;
-      }
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     }
+  }
+
+  async list(): Promise<TaskRecord[]> {
+    const root = join(getStateDir(), "tasks");
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const tasks: TaskRecord[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      try {
+        tasks.push(await this.get(entry.name));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    return tasks.sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
 
   async update(taskId: string, update: TaskUpdate): Promise<TaskRecord> {
