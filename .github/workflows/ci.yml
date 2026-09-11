@@ -24,6 +24,12 @@ jobs:
           corepack prepare pnpm@10.17.1 --activate
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
+      - name: Export resolved lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lock-node-${{ matrix.node }}
+          path: pnpm-lock.yaml
+          if-no-files-found: error
       - name: Typecheck
         run: pnpm typecheck
       - name: Test
