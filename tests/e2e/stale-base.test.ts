@@ -16,15 +16,17 @@ function git(cwd: string, ...args: string[]): string {
 
 class CountingCodex implements CodexAdapter {
   starts = 0;
+
   async start(): Promise<CodexRunHandle> {
     this.starts += 1;
     throw new Error("must not start");
   }
+
   async cancel(): Promise<void> {}
 }
 
 describe("stale base guard", () => {
-  it("rejects an outdated patch base before Codex starts", async () => {
+  it("blocks an outdated patch without stopping the supervisor loop", async () => {
     const state = await mkdtemp(join(tmpdir(), "c2c-state-"));
     process.env.CHAT2CODEX_STATE_DIR = state;
     const repo = await mkdtemp(join(tmpdir(), "c2c-repo-"));
@@ -60,8 +62,11 @@ describe("stale base guard", () => {
       }),
     );
 
-    await expect(supervisor.tick()).rejects.toThrow("STALE_BASE");
+    await supervisor.tick();
+
     expect(codex.starts).toBe(0);
-    expect((await supervisor.taskStore.get("stale_001")).state).toBe("PLANNED");
+    const task = await supervisor.taskStore.get("stale_001");
+    expect(task.state).toBe("BLOCKED");
+    expect(task.history.at(-1)?.reason).toBe("STALE_BASE");
   });
 });
