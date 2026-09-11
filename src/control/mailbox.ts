@@ -72,18 +72,19 @@ export class MailboxTransport implements ControlTransport {
     const names = (await readdir(this.queueDir()))
       .filter((name) => /^\d{13}-[a-f0-9]{16}\.json$/.test(name))
       .sort();
-    if (names.length === 0) return null;
-    const raw = JSON.parse(await readFile(join(this.queueDir(), names[0]), "utf8")) as Partial<ControlEnvelope>;
+    const first = names[0];
+    if (!first) return null;
+    const raw = JSON.parse(await readFile(join(this.queueDir(), first), "utf8")) as Partial<ControlEnvelope>;
     if (typeof raw.id !== "string" || typeof raw.created_at !== "string" || raw.message === undefined) {
-      throw new Error(`MAILBOX_ENVELOPE_MISMATCH: ${names[0]}`);
+      throw new Error(`MAILBOX_ENVELOPE_MISMATCH: ${first}`);
     }
     const envelope: ControlEnvelope = {
       id: raw.id,
       created_at: raw.created_at,
       message: parseControlMessage(raw.message),
     };
-    if (envelope.message.workspace_id !== this.workspaceId || `${envelope.id}.json` !== names[0]) {
-      throw new Error(`MAILBOX_ENVELOPE_MISMATCH: ${names[0]}`);
+    if (envelope.message.workspace_id !== this.workspaceId || `${envelope.id}.json` !== first) {
+      throw new Error(`MAILBOX_ENVELOPE_MISMATCH: ${first}`);
     }
     return envelope;
   }
