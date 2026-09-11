@@ -1,4 +1,4 @@
-import type { IncomingMessage, RequestListener } from "node:http";
+import type { RequestListener } from "node:http";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 
 import type { McpToolDependencies } from "../mcp/tools.js";
@@ -24,13 +24,18 @@ export function createBridgeApp(dependencies: McpToolDependencies): RequestListe
       return;
     }
     if (url.pathname === "/mcp") {
-      if (!request.method) {
+      if (!request.method || !request.url) {
         response.statusCode = 400;
-        response.end("Missing HTTP method");
+        response.end("Missing HTTP request metadata");
         return;
       }
-      const narrowedRequest = request as IncomingMessage & { method: string };
-      void nodeMcpHandler(narrowedRequest, response);
+      // The MCP node adapter accepts native IncomingMessage/ServerResponse objects at
+      // runtime. Its structural request type marks method/url as required, while
+      // Node's IncomingMessage types mark them optional, so narrow at this boundary.
+      void nodeMcpHandler(
+        request as unknown as Parameters<typeof nodeMcpHandler>[0],
+        response as unknown as Parameters<typeof nodeMcpHandler>[1],
+      );
       return;
     }
     response.statusCode = 404;
