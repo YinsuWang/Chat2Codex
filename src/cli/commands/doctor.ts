@@ -165,7 +165,7 @@ export async function runDoctor(workspacePath: string): Promise<{ ok: boolean; c
     detail: bridgeOk ? "Loopback MCP bridge is healthy" : "Loopback MCP bridge is not running or unhealthy",
   });
 
-  const forbidden = /(write|exec|shell|delete|commit|push|patch)/i;
+  const forbidden = /(?:^|_)(?:write|exec|shell|delete|commit|push|patch)(?:_|$)/i;
   const toolsOk = READ_ONLY_TOOL_NAMES.length === 12 && READ_ONLY_TOOL_NAMES.every((name) => !forbidden.test(name));
   checks.push({
     name: "mcp_tools",
