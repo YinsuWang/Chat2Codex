@@ -1,5 +1,20 @@
 const args = process.argv.slice(2);
-if (args[0] !== "exec" || args[1] !== "--json") process.exit(64);
+const expectedPrefix = [
+  "exec",
+  "--json",
+  "--sandbox",
+  "workspace-write",
+  "--ask-for-approval",
+  "never",
+];
+if (expectedPrefix.some((value, index) => args[index] !== value)) {
+  process.stderr.write(`unexpected args: ${JSON.stringify(args)}\n`);
+  process.exit(64);
+}
+if (typeof args[expectedPrefix.length] !== "string" || args[expectedPrefix.length].length === 0) {
+  process.stderr.write("missing prompt\n");
+  process.exit(64);
+}
 if (process.env.FAKE_CODEX_HANG === "1") {
   process.stdout.write(JSON.stringify({ type: "thread.started", cwd: process.cwd() }) + "\n");
   setInterval(() => undefined, 1_000);
