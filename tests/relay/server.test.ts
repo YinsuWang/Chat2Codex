@@ -72,8 +72,9 @@ class FrameQueue {
     socket.on("message", (data, isBinary) => {
       if (isBinary) return;
       const frame = parseRelayFrame(data.toString());
-      this.received.push(frame);
-      this.waiters.shift()?.(frame);
+      const waiter = this.waiters.shift();
+      if (waiter) waiter(frame);
+      else this.received.push(frame);
     });
   }
 
