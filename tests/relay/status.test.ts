@@ -35,6 +35,31 @@ describe("RelayStatusStore", () => {
     });
   });
 
+  it("distinguishes extension keepalive from a real bound-tab heartbeat", async () => {
+    const store = new RelayStatusStore(stateDir);
+    await store.markAuthenticated(WORKSPACE, "ext-1");
+    await store.recordHeartbeat(WORKSPACE, "ext-1", null);
+
+    expect(await store.get(WORKSPACE)).toMatchObject({
+      bound_tab_seen: false,
+      conversation_id: null,
+    });
+
+    const withTabHeartbeat = store as RelayStatusStore & {
+      recordTabHeartbeat(
+        workspaceId: string,
+        extensionId: string,
+        conversationId: string | null,
+      ): Promise<void>;
+    };
+    await withTabHeartbeat.recordTabHeartbeat(WORKSPACE, "ext-1", null);
+
+    expect(await store.get(WORKSPACE)).toMatchObject({
+      bound_tab_seen: true,
+      conversation_id: null,
+    });
+  });
+
   it("keeps only the 128 most recent unique fingerprints", async () => {
     const store = new RelayStatusStore(stateDir);
     await store.markAuthenticated(WORKSPACE, "ext-1");
