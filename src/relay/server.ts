@@ -88,8 +88,15 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
     response.end(JSON.stringify({ error: "NOT_FOUND" }));
   });
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
+  const inFlight = new Set<Promise<void>>();
+  let closing = false;
 
   server.on("upgrade", (request, socket, head) => {
+    if (closing) {
+      socket.destroy();
+      return;
+    }
+
     let pathname: string;
     try {
       pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -248,18 +255,27 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
     };
 
     socket.on("message", (data, isBinary) => {
-      chain = chain
+      const task = chain
         .then(() => handleMessage(data, isBinary))
         .catch(() => {
           rejectAndClose(socket, "RELAY_PROTOCOL_ERROR", "Relay message could not be processed");
         });
+      chain = task;
+      inFlight.add(task);
+      void task.finally(() => {
+        inFlight.delete(task);
+      });
     });
   });
 
   return {
     server,
     closeWebSockets: async () => {
+      closing = true;
       for (const client of webSockets.clients) client.terminate();
+      while (inFlight.size > 0) {
+        await Promise.allSettled([...inFlight]);
+      }
       await new Promise<void>((resolve) => webSockets.close(() => resolve()));
     },
   };
