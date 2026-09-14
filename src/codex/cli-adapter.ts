@@ -20,12 +20,25 @@ export class CodexCLIAdapter implements CodexAdapter {
   async start(input: CodexRunInput): Promise<CodexRunHandle> {
     const prompt = buildCodexPrompt(input);
     const executionId = `codex_${randomBytes(8).toString("hex")}`;
-    const child = spawn(this.command, [...this.prefixArgs, "exec", "--json", prompt], {
-      cwd: input.worktree_path,
-      shell: false,
-      windowsHide: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      this.command,
+      [
+        ...this.prefixArgs,
+        "exec",
+        "--json",
+        "--sandbox",
+        "workspace-write",
+        "--ask-for-approval",
+        "never",
+        prompt,
+      ],
+      {
+        cwd: input.worktree_path,
+        shell: false,
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     this.processes.set(executionId, child);
 
     const decoder = new JsonlDecoder();
