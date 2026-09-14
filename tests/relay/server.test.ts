@@ -164,6 +164,23 @@ describe("loopback relay server", () => {
     await new Promise<void>((resolve) => socket.once("close", () => resolve()));
   });
 
+  it("rejects an already-authenticated session on the first frame after unpair", async () => {
+    const token = await tokenStore.issue(WORKSPACE, EXTENSION);
+    const { socket, queue } = await connect();
+    await authenticate(socket, queue, token);
+    await tokenStore.revokeWorkspace(WORKSPACE);
+
+    socket.send(
+      serializeRelayFrame({
+        type: "keepalive",
+        workspace_id: WORKSPACE,
+      }),
+    );
+
+    expect(await queue.next()).toMatchObject({ type: "relay_error", code: "AUTH_REVOKED" });
+    await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  });
+
   it("delivers the durable outbound envelope semantically but does not ack on outbound_sent", async () => {
     const envelope = await control.publishOutbound(executed);
     const token = await tokenStore.issue(WORKSPACE, EXTENSION);
