@@ -55,7 +55,7 @@ function hashesEqual(left: string, right: string): boolean {
 function createHumanCode(): string {
   let code = "";
   for (let index = 0; index < PAIRING_CODE_LENGTH; index += 1) {
-    code += PAIRING_ALPHABET[randomInt(PAIRING_ALPHABET.length)];
+    code += PAIRING_ALPHABET.charAt(randomInt(PAIRING_ALPHABET.length));
   }
   return code;
 }
@@ -164,16 +164,17 @@ export class RelayPairingService {
     assertWorkspaceId(workspaceId);
     const previous = this.queues.get(workspaceId) ?? Promise.resolve();
     let release: () => void = () => undefined;
-    const current = new Promise<void>((resolve) => {
+    const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    this.queues.set(workspaceId, previous.then(() => current));
+    const tail = previous.then(() => gate);
+    this.queues.set(workspaceId, tail);
     await previous;
     try {
       return await action();
     } finally {
       release();
-      if (this.queues.get(workspaceId) === current) this.queues.delete(workspaceId);
+      if (this.queues.get(workspaceId) === tail) this.queues.delete(workspaceId);
     }
   }
 }
