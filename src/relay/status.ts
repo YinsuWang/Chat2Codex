@@ -59,7 +59,7 @@ export class RelayStatusStore {
       extension_id: extensionId,
       conversation_id: sameExtension ? existing.conversation_id : null,
       last_heartbeat_at: sameExtension ? existing.last_heartbeat_at : null,
-      recent_fingerprints: sameExtension ? existing.recent_fingerprints : [],
+      recent_fingerprints: existing?.recent_fingerprints ?? [],
     });
   }
 
