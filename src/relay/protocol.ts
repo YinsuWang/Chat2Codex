@@ -17,29 +17,29 @@ const ControlTextSchema = z.string().superRefine((value, context) => {
 });
 
 const RelayClientFrameSchema = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("hello"),
     workspace_id: WorkspaceIdSchema,
     token: z.string().min(1).max(MAX_IDENTIFIER_LENGTH),
     extension_id: BoundedIdentifierSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("keepalive"),
     workspace_id: WorkspaceIdSchema,
     at: z.string().datetime(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("outbound_sent"),
     workspace_id: WorkspaceIdSchema,
     envelope_id: BoundedIdentifierSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("assistant_control"),
     workspace_id: WorkspaceIdSchema,
     text: ControlTextSchema,
     fingerprint: BoundedIdentifierSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("tab_heartbeat"),
     workspace_id: WorkspaceIdSchema,
     conversation_id: z.string().min(1).max(2048),
@@ -47,23 +47,23 @@ const RelayClientFrameSchema = z.discriminatedUnion("type", [
 ]);
 
 const RelayServerFrameSchema = z.discriminatedUnion("type", [
-  z.object({
+  z.strictObject({
     type: z.literal("hello_ok"),
     workspace_id: WorkspaceIdSchema,
     server_time: z.string().datetime(),
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("outbound_control"),
     workspace_id: WorkspaceIdSchema,
     envelope_id: BoundedIdentifierSchema,
     text: ControlTextSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("assistant_ingested"),
     workspace_id: WorkspaceIdSchema,
     fingerprint: BoundedIdentifierSchema,
   }),
-  z.object({
+  z.strictObject({
     type: z.literal("relay_error"),
     code: BoundedIdentifierSchema,
     detail: z.string().max(16 * 1024),
