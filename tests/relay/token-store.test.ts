@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { RelayTokenStore } from "../../src/relay/token-store.js";
 import { getStateDir } from "../../src/config/paths.js";
-import { createTestStateDir, removeTestStateDir } from "../support/state-dir.js";
+import { RelayTokenStore } from "../../src/relay/token-store.js";
 
 const WORKSPACE = "ws_0123456789abcdef";
 const OTHER_WORKSPACE = "ws_fedcba9876543210";
@@ -12,13 +12,13 @@ const OTHER_WORKSPACE = "ws_fedcba9876543210";
 let stateDir: string;
 
 beforeEach(async () => {
-  stateDir = await createTestStateDir("relay-token-store");
+  stateDir = await mkdtemp(join(tmpdir(), "chat2codex-relay-token-"));
   process.env.CHAT2CODEX_STATE_DIR = stateDir;
 });
 
 afterEach(async () => {
   delete process.env.CHAT2CODEX_STATE_DIR;
-  await removeTestStateDir(stateDir);
+  await rm(stateDir, { recursive: true, force: true });
 });
 
 describe("RelayTokenStore", () => {
@@ -33,13 +33,14 @@ describe("RelayTokenStore", () => {
 
     const authorizationPath = join(getStateDir(), "relay", WORKSPACE, "authorization.json");
     const raw = await readFile(authorizationPath, "utf8");
+    const persisted = JSON.parse(raw) as Record<string, unknown>;
     expect(raw).not.toContain(token);
-    expect(JSON.parse(raw)).toMatchObject({
+    expect(persisted).toMatchObject({
       workspace_id: WORKSPACE,
       extension_id: "ext-1",
       revoked_at: null,
     });
-    expect(JSON.parse(raw).token_sha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(persisted.token_sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("revokes the current workspace authorization", async () => {
@@ -55,13 +56,14 @@ describe("RelayTokenStore", () => {
     const store = new RelayTokenStore();
     const token = await store.issue(WORKSPACE, "ext-1");
     const authorizationPath = join(getStateDir(), "relay", WORKSPACE, "authorization.json");
-    await BunLikeWrite(authorizationPath, JSON.stringify({ workspace_id: WORKSPACE, token_sha256: "bad" }));
+    await writeFile(
+      authorizationPath,
+      `${JSON.stringify({ workspace_id: WORKSPACE, token_sha256: "bad" })}\n`,
+      "utf8",
+    );
 
-    await expect(store.verify(WORKSPACE, "ext-1", token)).rejects.toThrow(/INVALID_RELAY_AUTHORIZATION/);
+    await expect(store.verify(WORKSPACE, "ext-1", token)).rejects.toThrow(
+      /INVALID_RELAY_AUTHORIZATION/,
+    );
   });
 });
-
-async function BunLikeWrite(path: string, value: string): Promise<void> {
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(path, `${value}\n`, "utf8");
-}
