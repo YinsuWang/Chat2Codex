@@ -30,6 +30,7 @@ export interface RelayServerHost {
 interface RelayConnectionContext {
   authenticated: boolean;
   extension_id: string | null;
+  relay_token: string | null;
   pending: ControlEnvelope | null;
 }
 
@@ -117,6 +118,7 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
     const context: RelayConnectionContext = {
       authenticated: false,
       extension_id: null,
+      relay_token: null,
       pending: null,
     };
     let chain = Promise.resolve();
@@ -135,11 +137,23 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
     };
 
     const handleAuthenticated = async (frame: RelayFrame): Promise<void> => {
-      if (!context.authenticated || !context.extension_id) {
+      if (!context.authenticated || !context.extension_id || !context.relay_token) {
         throw new Error("RELAY_NOT_AUTHENTICATED");
       }
       if (!("workspace_id" in frame) || frame.workspace_id !== options.workspaceId) {
         throw new Error("WORKSPACE_MISMATCH");
+      }
+
+      const stillAuthorized = await tokenStore.verify(
+        options.workspaceId,
+        context.extension_id,
+        context.relay_token,
+      );
+      if (!stillAuthorized) {
+        context.authenticated = false;
+        context.relay_token = null;
+        rejectAndClose(socket, "AUTH_REVOKED", "Relay authorization was revoked");
+        return;
       }
 
       if (frame.type === "keepalive") {
@@ -237,6 +251,7 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
         }
         context.authenticated = true;
         context.extension_id = frame.extension_id;
+        context.relay_token = frame.token;
         await statusStore.markAuthenticated(options.workspaceId, frame.extension_id);
         sendFrame(socket, {
           type: "hello_ok",
