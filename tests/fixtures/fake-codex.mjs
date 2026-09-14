@@ -1,11 +1,11 @@
 const args = process.argv.slice(2);
 const expectedPrefix = [
+  "--ask-for-approval",
+  "never",
   "exec",
   "--json",
   "--sandbox",
   "workspace-write",
-  "--ask-for-approval",
-  "never",
 ];
 if (expectedPrefix.some((value, index) => args[index] !== value)) {
   process.stderr.write(`unexpected args: ${JSON.stringify(args)}\n`);

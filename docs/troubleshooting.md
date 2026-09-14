@@ -33,7 +33,7 @@ Action: let ChatGPT re-read the current workspace and emit a fresh PLAN. Do not 
 Chat2Codex invokes non-interactive Codex explicitly with:
 
 ```text
-codex exec --json --sandbox workspace-write --ask-for-approval never <prompt>
+codex --ask-for-approval never exec --json --sandbox workspace-write <prompt>
 ```
 
 This is intentional: the executor must be able to edit only the isolated task worktree without requiring an interactive approval prompt. Chat2Codex does not use `danger-full-access`.

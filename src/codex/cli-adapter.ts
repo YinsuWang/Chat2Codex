@@ -24,12 +24,12 @@ export class CodexCLIAdapter implements CodexAdapter {
       this.command,
       [
         ...this.prefixArgs,
+        "--ask-for-approval",
+        "never",
         "exec",
         "--json",
         "--sandbox",
         "workspace-write",
-        "--ask-for-approval",
-        "never",
         prompt,
       ],
       {
