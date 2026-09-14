@@ -13,6 +13,7 @@ const RelayStatusStateSchema = z.strictObject({
   extension_id: z.string().min(1).max(256),
   conversation_id: z.string().min(1).max(2048).nullable(),
   last_heartbeat_at: z.string().datetime().nullable(),
+  bound_tab_seen: z.boolean().default(false),
   recent_fingerprints: z.array(z.string().min(1).max(256)).max(MAX_RECENT_FINGERPRINTS),
 });
 
@@ -59,6 +60,7 @@ export class RelayStatusStore {
       extension_id: extensionId,
       conversation_id: sameExtension ? existing.conversation_id : null,
       last_heartbeat_at: sameExtension ? existing.last_heartbeat_at : null,
+      bound_tab_seen: sameExtension ? existing.bound_tab_seen : false,
       recent_fingerprints: existing?.recent_fingerprints ?? [],
     });
   }
@@ -73,6 +75,20 @@ export class RelayStatusStore {
       ...existing,
       conversation_id: conversationId ?? existing.conversation_id,
       last_heartbeat_at: new Date().toISOString(),
+    });
+  }
+
+  async recordTabHeartbeat(
+    workspaceId: string,
+    extensionId: string,
+    conversationId: string | null,
+  ): Promise<void> {
+    const existing = await this.requireExtension(workspaceId, extensionId);
+    await this.write({
+      ...existing,
+      conversation_id: conversationId,
+      last_heartbeat_at: new Date().toISOString(),
+      bound_tab_seen: true,
     });
   }
 
