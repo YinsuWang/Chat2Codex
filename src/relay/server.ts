@@ -149,7 +149,7 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
       }
 
       if (frame.type === "tab_heartbeat") {
-        await statusStore.recordHeartbeat(
+        await statusStore.recordTabHeartbeat(
           options.workspaceId,
           context.extension_id,
           frame.conversation_id,
