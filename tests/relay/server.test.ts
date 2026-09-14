@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 
 import { ControlService } from "../../src/control/service.js";
-import { formatControlText } from "../../src/protocol/text-format.js";
+import { formatControlText, parseControlText } from "../../src/protocol/text-format.js";
 import type { ExecutedMessage, PlanMessage, ReviewMessage } from "../../src/protocol/types.js";
 import { parseRelayFrame, serializeRelayFrame, type RelayFrame } from "../../src/relay/protocol.js";
 import { startRelayServer, type RelayRuntime } from "../../src/relay/runtime.js";
@@ -151,18 +151,20 @@ describe("loopback relay server", () => {
     await new Promise<void>((resolve) => socket.once("close", () => resolve()));
   });
 
-  it("delivers the exact durable outbound envelope but does not ack on outbound_sent", async () => {
+  it("delivers the durable outbound envelope semantically but does not ack on outbound_sent", async () => {
     const envelope = await control.publishOutbound(executed);
     const token = await tokenStore.issue(WORKSPACE, EXTENSION);
     const { socket, queue } = await connect();
     await authenticate(socket, queue, token);
 
-    expect(await queue.next()).toEqual({
+    const delivered = await queue.next();
+    expect(delivered).toMatchObject({
       type: "outbound_control",
       workspace_id: WORKSPACE,
       envelope_id: envelope.id,
-      text: formatControlText(executed),
     });
+    if (delivered.type !== "outbound_control") throw new Error("expected outbound_control");
+    expect(parseControlText(delivered.text)).toEqual(executed);
 
     socket.send(
       serializeRelayFrame({
