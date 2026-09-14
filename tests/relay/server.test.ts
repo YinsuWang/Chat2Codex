@@ -9,7 +9,7 @@ import { formatControlText, parseControlText } from "../../src/protocol/text-for
 import type { ExecutedMessage, PlanMessage, ReviewMessage } from "../../src/protocol/types.js";
 import { parseRelayFrame, serializeRelayFrame, type RelayFrame } from "../../src/relay/protocol.js";
 import { startRelayServer, type RelayRuntime } from "../../src/relay/runtime.js";
-import { RelayStatusStore } from "../../src/relay/status.js";
+import { RelayStatusStore, type RelayStatusState } from "../../src/relay/status.js";
 import { RelayTokenStore } from "../../src/relay/token-store.js";
 
 const WORKSPACE = "ws_0123456789abcdef";
@@ -37,7 +37,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const socket of sockets) socket.terminate();
-  await runtime.close();
+  if (runtime.server.listening) await runtime.close();
   delete process.env.CHAT2CODEX_STATE_DIR;
   await rm(stateDir, { recursive: true, force: true });
 });
@@ -62,6 +62,19 @@ async function authenticate(socket: WebSocket, queue: FrameQueue, token: string)
     }),
   );
   expect(await queue.next()).toMatchObject({ type: "hello_ok", workspace_id: WORKSPACE });
+}
+
+async function waitForConversation(
+  conversationId: string,
+  timeoutMs = 1000,
+): Promise<RelayStatusState> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const status = await new RelayStatusStore().get(WORKSPACE);
+    if (status?.conversation_id === conversationId) return status;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`HEARTBEAT_STATUS_TIMEOUT: ${conversationId}`);
 }
 
 class FrameQueue {
@@ -251,9 +264,8 @@ describe("loopback relay server", () => {
         conversation_id: "chat-123",
       }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 25));
 
-    expect(await new RelayStatusStore().get(WORKSPACE)).toMatchObject({
+    expect(await waitForConversation("chat-123")).toMatchObject({
       workspace_id: WORKSPACE,
       extension_id: EXTENSION,
       conversation_id: "chat-123",
