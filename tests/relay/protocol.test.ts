@@ -54,6 +54,20 @@ describe("relay protocol", () => {
     ).toThrow();
   });
 
+  it("rejects unknown fields instead of silently stripping them", () => {
+    expect(() =>
+      parseRelayFrame(
+        JSON.stringify({
+          type: "outbound_control",
+          workspace_id: "ws_0123456789abcdef",
+          envelope_id: "env_01HZZZZZZZZZZZZZZZZZZZZZZZ",
+          text: "[CHAT2CODEX]\n{}",
+          token: "must-not-be-accepted-on-server-frames",
+        }),
+      ),
+    ).toThrow();
+  });
+
   it("rejects malformed workspace ids", () => {
     expect(() =>
       parseRelayFrame(
