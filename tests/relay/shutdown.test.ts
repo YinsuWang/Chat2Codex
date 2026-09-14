@@ -27,14 +27,14 @@ class BlockingStatusStore extends RelayStatusStore {
     this.heartbeatReleaseResolve();
   }
 
-  override async recordHeartbeat(
+  override async recordTabHeartbeat(
     workspaceId: string,
     extensionId: string,
     conversationId: string | null,
   ): Promise<void> {
     this.heartbeatStartedResolve();
     await this.heartbeatRelease;
-    await super.recordHeartbeat(workspaceId, extensionId, conversationId);
+    await super.recordTabHeartbeat(workspaceId, extensionId, conversationId);
   }
 }
 
