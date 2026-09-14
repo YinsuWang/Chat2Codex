@@ -1,14 +1,17 @@
 import { execFile } from "node:child_process";
 import { access, mkdir, rm, writeFile } from "node:fs/promises";
+import { get as httpGet } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { get as httpGet } from "node:http";
 import { Command } from "commander";
 
 import { getBridgeRuntime } from "../../bridge/runtime.js";
 import { getStateDir } from "../../config/paths.js";
 import { READ_ONLY_TOOL_NAMES } from "../../mcp/tools.js";
+import { getRelayRuntime } from "../../relay/runtime.js";
+import { RelayStatusStore } from "../../relay/status.js";
+import { RelayTokenStore } from "../../relay/token-store.js";
 import { getDaemonLock } from "../../supervisor/daemon.js";
 import { findWorkspaceByRoot } from "../../workspace/registry.js";
 
@@ -166,7 +169,9 @@ export async function runDoctor(workspacePath: string): Promise<{ ok: boolean; c
   });
 
   const forbidden = /(?:^|_)(?:write|exec|shell|delete|commit|push|patch)(?:_|$)/i;
-  const toolsOk = READ_ONLY_TOOL_NAMES.length === 12 && READ_ONLY_TOOL_NAMES.every((name) => !forbidden.test(name));
+  const toolsOk =
+    READ_ONLY_TOOL_NAMES.length === 12 &&
+    READ_ONLY_TOOL_NAMES.every((name) => !forbidden.test(name));
   checks.push({
     name: "mcp_tools",
     ok: toolsOk,
@@ -183,6 +188,44 @@ export async function runDoctor(workspacePath: string): Promise<{ ok: boolean; c
     }
   }
   checks.push({ name: "daemon_lock", ok: daemonOk, detail: daemonDetail });
+
+  let relayServerOk = false;
+  let relayPairingOk = false;
+  let relayTabOk = false;
+  if (workspace) {
+    const [relayRuntime, relayAuthorization, relayStatus] = await Promise.all([
+      getRelayRuntime(workspace.workspace_id).catch(() => null),
+      new RelayTokenStore().status(workspace.workspace_id).catch(() => ({
+        paired: false,
+        extension_id: null,
+      })),
+      new RelayStatusStore().get(workspace.workspace_id).catch(() => null),
+    ]);
+    relayServerOk = relayRuntime !== null && pidAlive(relayRuntime.pid);
+    relayPairingOk = relayAuthorization.paired;
+    relayTabOk = relayStatus?.bound_tab_seen ?? false;
+  }
+  checks.push({
+    name: "relay_server",
+    ok: relayServerOk,
+    detail: relayServerOk
+      ? "Loopback browser relay is running"
+      : "Integration blocker: loopback browser relay is not running",
+  });
+  checks.push({
+    name: "relay_pairing",
+    ok: relayPairingOk,
+    detail: relayPairingOk
+      ? "Browser relay authorization is paired"
+      : "Integration blocker: browser extension is not paired",
+  });
+  checks.push({
+    name: "relay_tab",
+    ok: relayTabOk,
+    detail: relayTabOk
+      ? "A bound ChatGPT tab heartbeat has been observed"
+      : "Integration blocker: no bound ChatGPT tab heartbeat has been observed",
+  });
 
   const relayInstalled = await skillInstalled();
   checks.push({
