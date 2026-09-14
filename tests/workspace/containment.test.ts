@@ -53,8 +53,11 @@ describe("resolveContainedPath", () => {
     expect((await resolveContainedPath(root, ".env.example")).relativePath).toBe(".env.example");
   });
 
-  it("rejects a symlink that escapes the workspace", async () => {
-    await symlink(join(outside, "outside.txt"), join(root, "escape-link"));
-    await expect(resolveContainedPath(root, "escape-link")).rejects.toThrow(/SYMLINK_ESCAPE/);
+  it("rejects a linked directory that escapes the workspace", async () => {
+    const link = join(root, "escape-link");
+    await symlink(outside, link, process.platform === "win32" ? "junction" : "dir");
+    await expect(resolveContainedPath(root, "escape-link/outside.txt")).rejects.toThrow(
+      /SYMLINK_ESCAPE/,
+    );
   });
 });
