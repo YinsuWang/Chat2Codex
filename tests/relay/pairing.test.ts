@@ -27,7 +27,7 @@ afterEach(async () => {
 });
 
 describe("RelayPairingService", () => {
-  it("creates an 8-character ambiguity-free code with a 5-minute TTL", async () => {
+  it("creates an 8-character ambiguity-free code with a 5-minute TTL without persisting plaintext", async () => {
     const pairing = new RelayPairingService(new RelayTokenStore());
     const session = await pairing.create(WORKSPACE);
 
@@ -35,6 +35,15 @@ describe("RelayPairingService", () => {
     expect(session.code).toMatch(HUMAN_CODE);
     expect(session.attempts_remaining).toBe(5);
     expect(session.expires_at).toBe("2026-09-14T08:05:00.000Z");
+
+    const pairingPath = join(getStateDir(), "relay", WORKSPACE, "pairing.json");
+    const raw = await readFile(pairingPath, "utf8");
+    expect(raw).not.toContain(session.code);
+    expect(JSON.parse(raw)).toMatchObject({
+      workspace_id: WORKSPACE,
+      attempts_remaining: 5,
+    });
+    expect(JSON.parse(raw).code_sha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("exchanges a pairing code once and stores no reusable plaintext credential", async () => {
@@ -51,6 +60,18 @@ describe("RelayPairingService", () => {
 
     const pairingPath = join(getStateDir(), "relay", WORKSPACE, "pairing.json");
     await expect(readFile(pairingPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("allows only one concurrent exchange of the same pairing code", async () => {
+    const pairing = new RelayPairingService(new RelayTokenStore());
+    const session = await pairing.create(WORKSPACE);
+    const results = await Promise.allSettled([
+      pairing.exchange(WORKSPACE, session.code, "ext-test"),
+      pairing.exchange(WORKSPACE, session.code, "ext-test"),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
   it("rejects exchange from another workspace", async () => {
