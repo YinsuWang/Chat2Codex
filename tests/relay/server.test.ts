@@ -174,6 +174,7 @@ describe("loopback relay server", () => {
       serializeRelayFrame({
         type: "keepalive",
         workspace_id: WORKSPACE,
+        at: new Date().toISOString(),
       }),
     );
 
