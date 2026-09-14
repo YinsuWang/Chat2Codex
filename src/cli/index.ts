@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { createControlCommand } from "./commands/control.js";
 import { createDoctorCommand } from "./commands/doctor.js";
 import { createInitCommand } from "./commands/init.js";
+import { createRelayCommand } from "./commands/relay.js";
 import { createStartCommand } from "./commands/start.js";
 import { createStatusCommand } from "./commands/status.js";
 
@@ -13,6 +14,7 @@ const program = new Command()
 
 program.addCommand(createInitCommand());
 program.addCommand(createControlCommand());
+program.addCommand(createRelayCommand());
 program.addCommand(createStartCommand());
 program.addCommand(createStatusCommand());
 program.addCommand(createDoctorCommand());
