@@ -28,6 +28,30 @@ Meaning: a `guided` or `patch` task was planned against a Git base that no longe
 
 Action: let ChatGPT re-read the current workspace and emit a fresh PLAN. Do not force-apply the old patch to the new tree.
 
+## Codex can read but cannot write the task worktree
+
+Chat2Codex invokes non-interactive Codex explicitly with:
+
+```text
+codex exec --json --sandbox workspace-write --ask-for-approval never <prompt>
+```
+
+This is intentional: the executor must be able to edit only the isolated task worktree without requiring an interactive approval prompt. Chat2Codex does not use `danger-full-access`.
+
+If Codex can inspect files and run read-only commands but cannot create or edit a file:
+
+1. Run an equivalent `codex exec --sandbox workspace-write` smoke test from a normal standalone PowerShell process, not from inside another Codex Desktop/CLI execution session. Nested Codex execution can inherit extra policy or runner constraints and is not a clean host-side reproduction.
+2. Verify the current working directory is the intended task worktree.
+3. Record `codex --version` and the Windows build.
+4. Do not work around the problem with `--dangerously-bypass-approvals-and-sandbox`.
+
+Native Windows has had upstream Codex CLI issues where `workspace-write` behaves effectively read-only even when requested explicitly. If a direct host-side reproduction still fails, test the same repository under WSL2 before changing Chat2Codex. Codex uses the Linux sandbox implementation under WSL2, so a WSL2 pass plus a native-Windows failure should be treated as an upstream/native-Windows limitation rather than evidence that the Chat2Codex worktree or adapter is read-only.
+
+Relevant upstream reports include:
+
+- https://github.com/openai/codex/issues/34961
+- https://github.com/openai/codex/issues/34958
+
 ## `Codex executable not found`
 
 Check:
