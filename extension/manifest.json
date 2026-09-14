@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Chat2Codex Relay",
+  "version": "0.1.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
