@@ -11,11 +11,15 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm build:node && pnpm build:extension",
+    "build:node": "tsc -p tsconfig.json",
+    "build:extension": "node scripts/build-extension.mjs",
     "dev": "tsx src/cli/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm typecheck:node && pnpm typecheck:extension",
+    "typecheck:node": "tsc --noEmit",
+    "typecheck:extension": "tsc --noEmit -p extension/tsconfig.json"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "^2.0.0",
