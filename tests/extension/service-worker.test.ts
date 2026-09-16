@@ -39,7 +39,7 @@ function fixture(state: ExtensionRelayState | null = STATE) {
   const timers: Array<{ callback: () => void; delay: number; interval: boolean }> = [];
   const deps: RelayWorkerDependencies = {
     loadState: vi.fn(async () => state),
-    createSocket: vi.fn((url) => { expect(url).toBe("ws://127.0.0.1:48765"); return socket; }),
+    createSocket: vi.fn((url) => { expect(url).toBe("ws://127.0.0.1:48765/relay"); return socket; }),
     sendToTab: vi.fn(async (tabId, message) => { forwarded.push({ tabId, message }); }),
     publishStatus: vi.fn(async (status) => { statuses.push(status); }),
     setTimeout: vi.fn((callback, delay) => { timers.push({ callback, delay, interval: false }); return timers.length; }),
