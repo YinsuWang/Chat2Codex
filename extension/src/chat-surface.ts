@@ -33,20 +33,14 @@ function uniqueMatches<T extends Element>(document: Document, selectors: readonl
   }
   return [...matches];
 }
-
-function isSendButton(element: Element): element is HTMLButtonElement {
-  return element instanceof HTMLButtonElement;
-}
-
+function isSendButton(element: Element): element is HTMLButtonElement { return element instanceof HTMLButtonElement; }
 function controlTextFromAssistant(element: Element): string | null {
   if (element.getAttribute("data-message-author-role") !== "assistant") return null;
-  const text = element.textContent ?? "";
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const normalized = (element.textContent ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const firstNewline = normalized.indexOf("\n");
   const firstLine = firstNewline === -1 ? normalized : normalized.slice(0, firstNewline);
   return firstLine === "[CHAT2CODEX]" ? normalized : null;
 }
-
 function dispatchInputEvents(element: HTMLElement): void {
   element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   element.dispatchEvent(new Event("change", { bubbles: true }));
@@ -55,45 +49,38 @@ function dispatchInputEvents(element: HTMLElement): void {
 export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
   constructor(private readonly dependencies: ChatGptSurfaceDependencies) {}
 
-  async isSupported(): Promise<boolean> {
-    return this.resolveSurface() !== null;
-  }
+  async isSupported(): Promise<boolean> { return this.resolveSurface() !== null; }
 
   async sendControlText(text: string): Promise<void> {
     if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_TEXT_BYTES) throw new Error("RELAY_CONTROL_TEXT_TOO_LARGE");
     const surface = this.resolveSurface();
     if (!surface) throw new Error("RELAY_UI_UNSUPPORTED");
-
     const { composer, send } = surface;
     if (composer instanceof HTMLTextAreaElement) {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-      if (setter) setter.call(composer, text);
-      else composer.value = text;
+      if (setter) setter.call(composer, text); else composer.value = text;
     } else if (composer instanceof HTMLElement && composer.isContentEditable) {
       composer.textContent = text;
-    } else {
-      throw new Error("RELAY_UI_UNSUPPORTED");
-    }
+    } else throw new Error("RELAY_UI_UNSUPPORTED");
     dispatchInputEvents(composer as HTMLElement);
     await Promise.resolve();
     send.click();
   }
 
   observeAssistantControls(onControl: (text: string) => void): () => void {
-    const seen = new Set<Element>();
+    const seenTexts = new Set<string>();
     const scan = () => {
       const messages = [...this.dependencies.document.querySelectorAll(MESSAGE_SELECTOR)].slice(-MAX_MESSAGE_SCAN);
       for (const message of messages) {
-        if (seen.has(message)) continue;
-        seen.add(message);
         const control = controlTextFromAssistant(message);
-        if (control !== null) onControl(control);
+        if (control === null || seenTexts.has(control)) continue;
+        seenTexts.add(control);
+        if (seenTexts.size > MAX_MESSAGE_SCAN) seenTexts.delete(seenTexts.values().next().value!);
+        onControl(control);
       }
     };
     scan();
-    const observer = this.dependencies.createObserver
-      ? this.dependencies.createObserver(() => scan())
-      : new MutationObserver(() => scan());
+    const observer = this.dependencies.createObserver ? this.dependencies.createObserver(() => scan()) : new MutationObserver(() => scan());
     observer.observe(this.dependencies.document.documentElement, { childList: true, subtree: true, characterData: true });
     return () => observer.disconnect();
   }
