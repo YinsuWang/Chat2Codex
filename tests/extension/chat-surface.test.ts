@@ -23,7 +23,6 @@ class FakeDocument {
     return values as unknown as NodeListOf<T>;
   }
 }
-
 type ObserverFactory = NonNullable<ConstructorParameters<typeof ChatGptSurfaceAdapter>[0]["createObserver"]>;
 
 beforeEach(() => {
@@ -32,18 +31,9 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "HTMLButtonElement", { configurable: true, value: FakeButton });
   Object.defineProperty(globalThis, "Event", { configurable: true, value: class { constructor(readonly type: string) {} } });
 });
-
-function contentEditable(): FakeHTMLElement {
-  const element = new FakeHTMLElement();
-  element.isContentEditable = true;
-  return element;
-}
+function contentEditable(): FakeHTMLElement { const element = new FakeHTMLElement(); element.isContentEditable = true; return element; }
 function adapterFor(document: FakeDocument, createObserver?: ObserverFactory): ChatGptSurfaceAdapter {
-  return new ChatGptSurfaceAdapter({
-    document: document as unknown as Document,
-    location: new URL("https://chatgpt.com/c/abc-123") as unknown as Location,
-    ...(createObserver ? { createObserver } : {}),
-  });
+  return new ChatGptSurfaceAdapter({ document: document as unknown as Document, location: new URL("https://chatgpt.com/c/abc-123") as unknown as Location, ...(createObserver ? { createObserver } : {}) });
 }
 
 describe("ChatGptSurfaceAdapter", () => {
@@ -53,47 +43,34 @@ describe("ChatGptSurfaceAdapter", () => {
     await expect(adapterFor(new FakeDocument([contentEditable(), contentEditable()], [new FakeButton()])).isSupported()).resolves.toBe(false);
     await expect(adapterFor(new FakeDocument([contentEditable()], [new FakeButton(), new FakeButton()])).isSupported()).resolves.toBe(false);
   });
-
   it("fails closed instead of sending through an ambiguous surface", async () => {
-    const adapter = adapterFor(new FakeDocument([contentEditable(), contentEditable()], [new FakeButton()]));
-    await expect(adapter.sendControlText("[CHAT2CODEX]\nhello")).rejects.toThrow("RELAY_UI_UNSUPPORTED");
+    await expect(adapterFor(new FakeDocument([contentEditable(), contentEditable()], [new FakeButton()])).sendControlText("[CHAT2CODEX]\nhello")).rejects.toThrow("RELAY_UI_UNSUPPORTED");
   });
-
   it("assigns exact text, emits input/change, and submits once without innerHTML", async () => {
-    const composer = contentEditable();
-    const send = new FakeButton();
+    const composer = contentEditable(); const send = new FakeButton();
     await adapterFor(new FakeDocument([composer], [send])).sendControlText("[CHAT2CODEX]\nline 2\nline 3");
-    expect(composer.textContent).toBe("[CHAT2CODEX]\nline 2\nline 3");
-    expect(composer.events).toEqual(["input", "change"]);
-    expect(send.clicks).toBe(1);
+    expect(composer.textContent).toBe("[CHAT2CODEX]\nline 2\nline 3"); expect(composer.events).toEqual(["input", "change"]); expect(send.clicks).toBe(1);
     expect(Object.prototype.hasOwnProperty.call(composer, "innerHTML")).toBe(false);
   });
-
   it("rejects control text over 16 KiB before DOM work", async () => {
     const send = new FakeButton();
-    const adapter = adapterFor(new FakeDocument([contentEditable()], [send]));
-    await expect(adapter.sendControlText("x".repeat(16 * 1024 + 1))).rejects.toThrow("RELAY_CONTROL_TEXT_TOO_LARGE");
+    await expect(adapterFor(new FakeDocument([contentEditable()], [send])).sendControlText("x".repeat(16 * 1024 + 1))).rejects.toThrow("RELAY_CONTROL_TEXT_TOO_LARGE");
     expect(send.clicks).toBe(0);
   });
-
-  it("observes only assistant messages whose first line is exactly the marker", () => {
+  it("observes only exact first-line assistant controls and deduplicates rescans", () => {
     const user = new FakeHTMLElement(); user.setAttribute("data-message-author-role", "user"); user.textContent = "[CHAT2CODEX]\nuser";
     const prose = new FakeHTMLElement(); prose.setAttribute("data-message-author-role", "assistant"); prose.textContent = "prose [CHAT2CODEX]\nlater";
     const control = new FakeHTMLElement(); control.setAttribute("data-message-author-role", "assistant"); control.textContent = "[CHAT2CODEX]\nreview";
-    const emitted: string[] = [];
-    let disconnected = false;
-    const stop = adapterFor(new FakeDocument([], [], [user, prose, control]), () => ({ observe() {}, disconnect() { disconnected = true; } }))
+    const emitted: string[] = []; let rescan: MutationCallback | undefined; let disconnected = false;
+    const stop = adapterFor(new FakeDocument([], [], [user, prose, control]), (callback) => { rescan = callback; return { observe() {}, disconnect() { disconnected = true; } }; })
       .observeAssistantControls((text) => emitted.push(text));
-    expect(emitted).toEqual(["[CHAT2CODEX]\nreview"]);
-    stop();
-    expect(disconnected).toBe(true);
+    rescan?.([] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(emitted).toEqual(["[CHAT2CODEX]\nreview"]); stop(); expect(disconnected).toBe(true);
   });
-
   it("extracts conversation identity from /c/<id> URLs", async () => {
     const adapter = new ChatGptSurfaceAdapter({ document: {} as Document, location: new URL("https://chatgpt.com/c/abc-123?x=1") as unknown as Location });
     await expect(adapter.conversationIdentity()).resolves.toBe("abc-123");
   });
-
   it("returns null outside a conversation URL", async () => {
     const adapter = new ChatGptSurfaceAdapter({ document: {} as Document, location: new URL("https://chatgpt.com/") as unknown as Location });
     await expect(adapter.conversationIdentity()).resolves.toBeNull();
