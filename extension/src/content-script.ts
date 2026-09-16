@@ -55,8 +55,8 @@ export function initializeContentScript(api: ChromeLike, documentRef: Document, 
     await api.runtime.sendMessage(frame);
   };
 
-  const stopObserver = surface.observeAssistantControls((text) => {
-    void (async () => {
+  const handleAssistantControl = async (text: string): Promise<void> => {
+    try {
       const state = await loadState();
       if (!state) return;
       const conversationId = await surface.conversationIdentity();
@@ -64,12 +64,13 @@ export function initializeContentScript(api: ChromeLike, documentRef: Document, 
       await sendHeartbeat(state, conversationId);
       const frame: RelayClientFrame = { type: "assistant_control", workspace_id: state.workspace_id, text, fingerprint: await fingerprint(text) };
       await api.runtime.sendMessage(frame);
-    })();
-  });
+    } catch {
+      // Fail closed: never mutate the page or retry an unvalidated upstream control here.
+    }
+  };
 
-  api.runtime.onMessage.addListener((message) => {
-    if (!isDeliverControl(message)) return;
-    void (async () => {
+  const handleDelivery = async (message: DeliverControlMessage): Promise<void> => {
+    try {
       const state = await loadState();
       if (!state || state.workspace_id !== message.workspace_id || !(await surface.isSupported())) return;
       const conversationId = await surface.conversationIdentity();
@@ -78,12 +79,22 @@ export function initializeContentScript(api: ChromeLike, documentRef: Document, 
       await surface.sendControlText(message.text);
       const frame: RelayClientFrame = { type: "outbound_sent", workspace_id: state.workspace_id, envelope_id: message.envelope_id };
       await api.runtime.sendMessage(frame);
-    })();
-  });
+    } catch {
+      // The durable server mailbox remains unacknowledged and can be retried safely.
+    }
+  };
 
+  const stopObserver = surface.observeAssistantControls((text) => { void handleAssistantControl(text); });
+  api.runtime.onMessage.addListener((message) => {
+    if (isDeliverControl(message)) void handleDelivery(message);
+  });
   void (async () => {
-    const state = await loadState();
-    if (state) await sendHeartbeat(state, await surface.conversationIdentity());
+    try {
+      const state = await loadState();
+      if (state) await sendHeartbeat(state, await surface.conversationIdentity());
+    } catch {
+      // Status heartbeat is best-effort; relay data stays fail-closed.
+    }
   })();
 
   return stopObserver;
