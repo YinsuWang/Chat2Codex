@@ -1,12 +1,13 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 import { ControlService } from "../../src/control/service.js";
 import { formatControlText, parseControlText } from "../../src/protocol/text-format.js";
 import type { ExecutedMessage, PlanMessage, ReviewMessage } from "../../src/protocol/types.js";
+import { RelayPairingService } from "../../src/relay/pairing.js";
 import { parseRelayFrame, serializeRelayFrame, type RelayFrame } from "../../src/relay/protocol.js";
 import { startRelayServer, type RelayRuntime } from "../../src/relay/runtime.js";
 import { RelayStatusStore, type RelayStatusState } from "../../src/relay/status.js";
@@ -36,6 +37,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const socket of sockets) socket.terminate();
   if (runtime.server.listening) await runtime.close();
   delete process.env.CHAT2CODEX_STATE_DIR;
@@ -62,6 +64,18 @@ async function authenticate(socket: WebSocket, queue: FrameQueue, token: string)
     }),
   );
   expect(await queue.next()).toMatchObject({ type: "hello_ok", workspace_id: WORKSPACE });
+}
+
+async function postJson(
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<Response> {
+  return fetch(`http://127.0.0.1:${runtime.port}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
 }
 
 async function waitForConversation(
@@ -299,5 +313,102 @@ describe("loopback relay server", () => {
 
     expect(await queue.next()).toMatchObject({ type: "relay_error", code: "BINARY_FRAME_REJECTED" });
     await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+  });
+
+  it("exchanges a one-time pairing code through POST /pair", async () => {
+    const pairing = new RelayPairingService(tokenStore);
+    const session = await pairing.create(WORKSPACE);
+
+    const response = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json() as { workspace_id: string; token: string };
+    expect(payload.workspace_id).toBe(WORKSPACE);
+    expect(payload.token.length).toBeGreaterThanOrEqual(43);
+    expect(await tokenStore.verify(WORKSPACE, EXTENSION, payload.token)).toBe(true);
+
+    const replay = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    });
+    expect(replay.status).toBe(401);
+  });
+
+  it("rejects proxy headers without consuming the pairing code", async () => {
+    const pairing = new RelayPairingService(tokenStore);
+    const session = await pairing.create(WORKSPACE);
+
+    const proxied = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    }, { "x-forwarded-for": "203.0.113.7" });
+    expect(proxied.status).toBe(403);
+
+    const direct = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    });
+    expect(direct.status).toBe(200);
+  });
+
+  it("enforces pairing attempt exhaustion through the HTTP surface", async () => {
+    const pairing = new RelayPairingService(tokenStore);
+    const session = await pairing.create(WORKSPACE);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await postJson("/pair", {
+        workspace_id: WORKSPACE,
+        code: "AAAAAAAA",
+        extension_id: EXTENSION,
+      });
+      expect(response.status).toBe(401);
+    }
+
+    const exhausted = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    });
+    expect(exhausted.status).toBe(401);
+  });
+
+  it("enforces pairing TTL through the HTTP surface", async () => {
+    const pairing = new RelayPairingService(tokenStore);
+    const session = await pairing.create(WORKSPACE);
+    const realNow = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(realNow + 5 * 60 * 1000 + 1);
+
+    const response = await postJson("/pair", {
+      workspace_id: WORKSPACE,
+      code: session.code,
+      extension_id: EXTENSION,
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("revokes workspace authorization through authenticated POST /unpair", async () => {
+    const token = await tokenStore.issue(WORKSPACE, EXTENSION);
+
+    const rejected = await postJson("/unpair", {
+      workspace_id: WORKSPACE,
+      extension_id: EXTENSION,
+      token: "wrong-token",
+    });
+    expect(rejected.status).toBe(401);
+    expect(await tokenStore.verify(WORKSPACE, EXTENSION, token)).toBe(true);
+
+    const response = await postJson("/unpair", {
+      workspace_id: WORKSPACE,
+      extension_id: EXTENSION,
+      token,
+    });
+    expect(response.status).toBe(200);
+    expect(await tokenStore.verify(WORKSPACE, EXTENSION, token)).toBe(false);
   });
 });

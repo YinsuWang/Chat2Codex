@@ -4,11 +4,48 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Chat2Codex Relay</title>
+    <style>
+      body { font: 13px/1.4 system-ui, sans-serif; width: 320px; margin: 0; padding: 16px; }
+      h1 { font-size: 16px; margin: 0 0 12px; }
+      form, section { display: grid; gap: 8px; }
+      label { display: grid; gap: 4px; }
+      input, button { font: inherit; padding: 6px 8px; }
+      .meta { overflow-wrap: anywhere; }
+      #relay-error { color: #b42318; min-height: 1.4em; }
+      [hidden] { display: none !important; }
+    </style>
   </head>
   <body>
     <main>
       <h1>Chat2Codex Relay</h1>
-      <p>Extension transport is installed. Pairing UI is added in Task 8.</p>
+      <p>Status: <strong id="relay-state">Loading</strong></p>
+      <p id="relay-error" role="status" aria-live="polite"></p>
+
+      <section id="pair-panel">
+        <form id="pair-form">
+          <label>
+            Relay port
+            <input id="relay-port" name="relay-port" inputmode="numeric" value="48766" required />
+          </label>
+          <label>
+            Workspace ID
+            <input id="workspace-id" name="workspace-id" autocomplete="off" placeholder="ws_0123456789abcdef" required />
+          </label>
+          <label>
+            One-time pairing code
+            <input id="pairing-code" name="pairing-code" autocomplete="off" maxlength="8" required />
+          </label>
+          <button type="submit">Pair</button>
+        </form>
+      </section>
+
+      <section id="paired-panel" hidden>
+        <div class="meta">Workspace: <span id="workspace-summary"></span></div>
+        <div class="meta">Conversation: <span id="binding-summary"></span></div>
+        <button id="bind-button" type="button">Bind current ChatGPT tab</button>
+        <button id="unbind-button" type="button" hidden>Unbind</button>
+        <button id="unpair-button" type="button">Unpair</button>
+      </section>
     </main>
     <script type="module" src="popup.js"></script>
   </body>
