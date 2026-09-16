@@ -16,7 +16,7 @@ export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
   async sendControlText(text: string): Promise<void> {
     if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_TEXT_BYTES) throw new Error("RELAY_CONTROL_TEXT_TOO_LARGE");
     const surface = this.resolveSurface(); if (!surface) throw new Error("RELAY_UI_UNSUPPORTED"); const { composer, send } = surface;
-    if (isTextArea(composer)) { const prototype = Object.getPrototypeOf(composer) as object; const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set; if (setter) setter.call(composer, text); else composer.value = text; }
+    if (isTextArea(composer)) { const setter = typeof HTMLTextAreaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set : undefined; if (setter) setter.call(composer, text); else composer.value = text; }
     else if (isEditable(composer)) composer.textContent = text; else throw new Error("RELAY_UI_UNSUPPORTED");
     dispatchInputEvents(composer as HTMLElement); await Promise.resolve(); send.click();
   }
