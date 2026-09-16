@@ -7,7 +7,7 @@ const MESSAGE_SELECTOR = "[data-message-author-role]"; const MAX_MESSAGE_SCAN = 
 function uniqueMatches<T extends Element>(document: Document, selectors: readonly string[]): T[] { const matches = new Set<T>(); for (const selector of selectors) for (const element of document.querySelectorAll<T>(selector)) matches.add(element); return [...matches]; }
 function isSendButton(element: Element): element is HTMLButtonElement { return element.tagName.toLowerCase() === "button" && typeof (element as HTMLButtonElement).click === "function"; }
 function isTextArea(element: Element): element is HTMLTextAreaElement { return element.tagName.toLowerCase() === "textarea" && "value" in element; }
-function isEditable(element: Element): element is HTMLElement { return element instanceof HTMLElement && element.isContentEditable; }
+function isEditable(element: Element): element is HTMLElement { return "isContentEditable" in element && (element as HTMLElement).isContentEditable; }
 function controlTextFromAssistant(element: Element): string | null { if (element.getAttribute("data-message-author-role") !== "assistant") return null; const text = element.textContent ?? ""; const firstLine = text.split(/\r?\n|\r/, 1)[0] ?? ""; return firstLine === "[CHAT2CODEX]" ? text : null; }
 function dispatchInputEvents(element: HTMLElement): void { element.dispatchEvent(new Event("input", { bubbles: true, composed: true })); element.dispatchEvent(new Event("change", { bubbles: true })); }
 export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
