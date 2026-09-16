@@ -11,7 +11,7 @@ class FakeHTMLElement {
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
 }
 class FakeTextArea extends FakeHTMLElement { value = ""; }
-class FakeButton extends FakeHTMLElement { clicks = 0; disabled = false; click(): void { this.clicks += 1; } }
+class FakeButton extends FakeHTMLElement { clicks = 0; click(): void { this.clicks += 1; } }
 class FakeDocument {
   documentElement = {} as HTMLElement;
   constructor(readonly composers: FakeHTMLElement[], readonly sends: FakeButton[], readonly messages: FakeHTMLElement[] = []) {}
@@ -23,6 +23,8 @@ class FakeDocument {
     return values as unknown as NodeListOf<T>;
   }
 }
+
+type ObserverFactory = NonNullable<ConstructorParameters<typeof ChatGptSurfaceAdapter>[0]["createObserver"]>;
 
 beforeEach(() => {
   Object.defineProperty(globalThis, "HTMLElement", { configurable: true, value: FakeHTMLElement });
@@ -36,11 +38,11 @@ function contentEditable(): FakeHTMLElement {
   element.isContentEditable = true;
   return element;
 }
-function adapterFor(document: FakeDocument, createObserver?: (callback: MutationCallback) => { observe(): void; disconnect(): void }): ChatGptSurfaceAdapter {
+function adapterFor(document: FakeDocument, createObserver?: ObserverFactory): ChatGptSurfaceAdapter {
   return new ChatGptSurfaceAdapter({
     document: document as unknown as Document,
     location: new URL("https://chatgpt.com/c/abc-123") as unknown as Location,
-    createObserver: createObserver as ChatGptSurfaceAdapter extends never ? never : typeof createObserver,
+    ...(createObserver ? { createObserver } : {}),
   });
 }
 
