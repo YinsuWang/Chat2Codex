@@ -37,14 +37,17 @@ describe("browser extension manifest", () => {
     expect(value.action).toEqual({ default_popup: "popup.html" });
   });
 
-  it("grants only storage/tabs and chatgpt.com host access", async () => {
+  it("grants only storage/tabs plus exact ChatGPT and loopback host access", async () => {
     const value = await manifest();
     const permissions = value.permissions as string[];
     const hostPermissions = value.host_permissions as string[];
 
     expect(permissions).toEqual(["storage", "tabs"]);
     expect(permissions.some((permission) => FORBIDDEN_PERMISSIONS.has(permission))).toBe(false);
-    expect(hostPermissions).toEqual(["https://chatgpt.com/*"]);
-    expect(hostPermissions.some((host) => /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(host))).toBe(false);
+    expect(hostPermissions).toEqual(["https://chatgpt.com/*", "http://127.0.0.1/*"]);
+    expect(hostPermissions).not.toContain("http://localhost/*");
+    expect(hostPermissions).not.toContain("http://0.0.0.0/*");
+    expect(hostPermissions).not.toContain("http://*/*");
+    expect(hostPermissions).not.toContain("https://*/*");
   });
 });
