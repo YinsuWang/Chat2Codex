@@ -8,7 +8,7 @@ function uniqueMatches<T extends Element>(document: Document, selectors: readonl
 function isSendButton(element: Element): element is HTMLButtonElement { return element.tagName.toLowerCase() === "button" && typeof (element as HTMLButtonElement).click === "function"; }
 function isTextArea(element: Element): element is HTMLTextAreaElement { return element.tagName.toLowerCase() === "textarea" && "value" in element; }
 function isEditable(element: Element): element is HTMLElement { return "isContentEditable" in element && (element as HTMLElement).isContentEditable; }
-function controlTextFromAssistant(element: Element): string | null { if (element.getAttribute("data-message-author-role") !== "assistant") return null; const text = element.textContent ?? ""; const firstLine = text.split(/\r?\n|\r/, 1)[0] ?? ""; return firstLine === "[CHAT2CODEX]" ? text : null; }
+function controlTextFromAssistant(element: Element): string | null { if (element.getAttribute("data-message-author-role") !== "assistant") return null; const text = element.textContent ?? ""; if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_TEXT_BYTES) return null; const firstLine = text.split(/\r?\n|\r/, 1)[0] ?? ""; return firstLine === "[CHAT2CODEX]" ? text : null; }
 function dispatchInputEvents(element: HTMLElement): void { element.dispatchEvent(new Event("input", { bubbles: true, composed: true })); element.dispatchEvent(new Event("change", { bubbles: true })); }
 export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
   constructor(private readonly dependencies: ChatGptSurfaceDependencies) {}
