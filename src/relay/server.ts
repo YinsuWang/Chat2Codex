@@ -1,4 +1,9 @@
-import { createServer, type Server } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -6,6 +11,7 @@ import type { ControlService } from "../control/service.js";
 import type { ControlEnvelope } from "../control/transport.js";
 import { formatControlText, parseControlText } from "../protocol/text-format.js";
 import type { ControlMessage } from "../protocol/types.js";
+import { RelayPairingService } from "./pairing.js";
 import {
   MAX_FRAME_BYTES,
   parseRelayFrame,
@@ -41,6 +47,8 @@ const CLIENT_FRAME_TYPES = new Set([
   "assistant_control",
   "tab_heartbeat",
 ]);
+const HTTP_BODY_LIMIT = 8 * 1024;
+const WORKSPACE_ID_PATTERN = /^ws_[a-f0-9]{16}$/;
 
 function isClientFrame(frame: RelayFrame): boolean {
   return CLIENT_FRAME_TYPES.has(frame.type);
@@ -80,13 +88,152 @@ function rejectAndClose(socket: WebSocket, code: string, detail: string): void {
   socket.send(frame, () => socket.close(1008, code.slice(0, 123)));
 }
 
+function writeJson(response: ServerResponse, status: number, value: unknown): void {
+  response.statusCode = status;
+  response.setHeader("content-type", "application/json; charset=utf-8");
+  response.setHeader("cache-control", "no-store");
+  response.end(JSON.stringify(value));
+}
+
+function isLoopbackRemote(request: IncomingMessage): boolean {
+  const remote = request.socket.remoteAddress;
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+function hasProxyHeaders(request: IncomingMessage): boolean {
+  return Object.keys(request.headers).some((name) => (
+    name === "forwarded" ||
+    name === "x-real-ip" ||
+    name.startsWith("x-forwarded-")
+  ));
+}
+
+async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.byteLength;
+    if (size > HTTP_BODY_LIMIT) throw new Error("HTTP_BODY_TOO_LARGE");
+    chunks.push(buffer);
+  }
+  if (size === 0) throw new Error("HTTP_BODY_REQUIRED");
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  } catch {
+    throw new Error("HTTP_JSON_INVALID");
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function pairingRequest(value: unknown): {
+  workspace_id: string;
+  code: string;
+  extension_id: string;
+} | null {
+  if (!isRecord(value)) return null;
+  const { workspace_id, code, extension_id } = value;
+  if (
+    typeof workspace_id !== "string" || !WORKSPACE_ID_PATTERN.test(workspace_id) ||
+    typeof code !== "string" || code.length !== 8 ||
+    typeof extension_id !== "string" || extension_id.length < 1 || extension_id.length > 256
+  ) return null;
+  return { workspace_id, code, extension_id };
+}
+
+function unpairRequest(value: unknown): {
+  workspace_id: string;
+  extension_id: string;
+  token: string;
+} | null {
+  if (!isRecord(value)) return null;
+  const { workspace_id, extension_id, token } = value;
+  if (
+    typeof workspace_id !== "string" || !WORKSPACE_ID_PATTERN.test(workspace_id) ||
+    typeof extension_id !== "string" || extension_id.length < 1 || extension_id.length > 256 ||
+    typeof token !== "string" || token.length < 1 || token.length > 256
+  ) return null;
+  return { workspace_id, extension_id, token };
+}
+
 export function createRelayServer(options: RelayServerOptions): RelayServerHost {
   const tokenStore = options.tokenStore ?? new RelayTokenStore();
   const statusStore = options.statusStore ?? new RelayStatusStore();
-  const server = createServer((_request, response) => {
-    response.statusCode = 404;
-    response.setHeader("content-type", "application/json; charset=utf-8");
-    response.end(JSON.stringify({ error: "NOT_FOUND" }));
+  const pairingService = new RelayPairingService(tokenStore);
+  const server = createServer((request, response) => {
+    void (async () => {
+      let pathname: string;
+      try {
+        pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+      } catch {
+        writeJson(response, 400, { error: "INVALID_REQUEST" });
+        return;
+      }
+
+      if (request.method !== "POST" || (pathname !== "/pair" && pathname !== "/unpair")) {
+        writeJson(response, 404, { error: "NOT_FOUND" });
+        return;
+      }
+      if (!isLoopbackRemote(request) || hasProxyHeaders(request)) {
+        writeJson(response, 403, { error: "LOOPBACK_ONLY" });
+        return;
+      }
+
+      let body: unknown;
+      try {
+        body = await readJsonBody(request);
+      } catch {
+        writeJson(response, 400, { error: "INVALID_REQUEST" });
+        return;
+      }
+
+      if (pathname === "/pair") {
+        const parsed = pairingRequest(body);
+        if (!parsed || parsed.workspace_id !== options.workspaceId) {
+          writeJson(response, 400, { error: "INVALID_PAIRING_REQUEST" });
+          return;
+        }
+        try {
+          const { token } = await pairingService.exchange(
+            parsed.workspace_id,
+            parsed.code,
+            parsed.extension_id,
+          );
+          writeJson(response, 200, { workspace_id: parsed.workspace_id, token });
+        } catch {
+          writeJson(response, 401, { error: "PAIRING_REJECTED" });
+        }
+        return;
+      }
+
+      const parsed = unpairRequest(body);
+      if (!parsed || parsed.workspace_id !== options.workspaceId) {
+        writeJson(response, 400, { error: "INVALID_UNPAIR_REQUEST" });
+        return;
+      }
+      let verified = false;
+      try {
+        verified = await tokenStore.verify(
+          parsed.workspace_id,
+          parsed.extension_id,
+          parsed.token,
+        );
+      } catch {
+        verified = false;
+      }
+      if (!verified) {
+        writeJson(response, 401, { error: "AUTH_FAILED" });
+        return;
+      }
+      await tokenStore.revokeWorkspace(parsed.workspace_id);
+      writeJson(response, 200, { workspace_id: parsed.workspace_id, unpaired: true });
+    })().catch(() => {
+      if (!response.headersSent) writeJson(response, 500, { error: "RELAY_HTTP_ERROR" });
+      else response.end();
+    });
   });
   const webSockets = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
   const inFlight = new Set<Promise<void>>();

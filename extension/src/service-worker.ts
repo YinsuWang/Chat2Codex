@@ -9,6 +9,7 @@ import {
 export const EXTENSION_RELAY_STATE_KEY = "chat2codex_relay_state";
 const KEEPALIVE_MS = 20_000;
 const SOCKET_OPEN = 1;
+const WORKSPACE_ID_PATTERN = /^ws_[a-f0-9]{16}$/;
 
 export interface ExtensionRelayState {
   workspace_id: string;
@@ -19,6 +20,16 @@ export interface ExtensionRelayState {
   bound_tab_id: number | null;
   conversation_id: string | null;
 }
+
+interface PublicRelayState {
+  workspace_id: string;
+  workspace_name: string;
+  relay_port: number;
+  extension_id: string;
+  bound_tab_id: number | null;
+  conversation_id: string | null;
+}
+
 export type RelayStatus = "connected" | "disconnected" | "auth_failed";
 export interface RelaySocket {
   readyState: number;
@@ -47,11 +58,24 @@ export function reconnectDelayMs(attempt: number): number {
 
 function validState(value: ExtensionRelayState | null): value is ExtensionRelayState {
   return value !== null
-    && /^ws_[a-f0-9]{16}$/.test(value.workspace_id)
+    && WORKSPACE_ID_PATTERN.test(value.workspace_id)
+    && typeof value.workspace_name === "string"
     && Number.isInteger(value.relay_port) && value.relay_port >= 1 && value.relay_port <= 65535
-    && value.relay_token.length > 0 && value.relay_token.length <= 256
-    && value.extension_id.length > 0 && value.extension_id.length <= 256
-    && (value.bound_tab_id === null || (Number.isInteger(value.bound_tab_id) && value.bound_tab_id >= 0));
+    && typeof value.relay_token === "string" && value.relay_token.length > 0 && value.relay_token.length <= 256
+    && typeof value.extension_id === "string" && value.extension_id.length > 0 && value.extension_id.length <= 256
+    && (value.bound_tab_id === null || (Number.isInteger(value.bound_tab_id) && value.bound_tab_id >= 0))
+    && (value.conversation_id === null || (typeof value.conversation_id === "string" && value.conversation_id.length > 0 && value.conversation_id.length <= 2048));
+}
+
+function publicState(state: ExtensionRelayState): PublicRelayState {
+  return {
+    workspace_id: state.workspace_id,
+    workspace_name: state.workspace_name,
+    relay_port: state.relay_port,
+    extension_id: state.extension_id,
+    bound_tab_id: state.bound_tab_id,
+    conversation_id: state.conversation_id,
+  };
 }
 
 export class ExtensionRelayClient {
@@ -72,6 +96,7 @@ export class ExtensionRelayClient {
     this.authFailed = false;
     const state = await this.deps.loadState(EXTENSION_RELAY_STATE_KEY);
     if (!validState(state)) {
+      this.state = null;
       await this.deps.publishStatus("disconnected");
       return;
     }
@@ -81,6 +106,7 @@ export class ExtensionRelayClient {
 
   stop(): void {
     this.stopped = true;
+    this.authenticated = false;
     this.clearTimers();
     const socket = this.socket;
     this.socket = null;
@@ -117,7 +143,7 @@ export class ExtensionRelayClient {
       return;
     }
     if (frame.type === "relay_error") {
-      const authFailure = frame.code === "AUTH_FAILED" || frame.code === "RELAY_AUTH_FAILED";
+      const authFailure = frame.code === "AUTH_FAILED" || frame.code === "RELAY_AUTH_FAILED" || frame.code === "AUTH_REVOKED";
       if (authFailure) this.authFailed = true;
       await this.failClosed(socket, authFailure ? "auth_failed" : "disconnected");
       return;
@@ -188,10 +214,70 @@ export class ExtensionRelayClient {
   }
 }
 
+interface PopupGetStateMessage { type: "popup_get_state"; }
+interface PopupSavePairingMessage {
+  type: "popup_save_pairing";
+  workspace_id: string;
+  relay_port: number;
+  relay_token: string;
+  extension_id: string;
+}
+interface PopupBindMessage { type: "popup_bind"; tab_id: number; conversation_id: string; }
+interface PopupUnbindMessage { type: "popup_unbind"; }
+interface PopupUnpairMessage { type: "popup_unpair"; }
+type PopupWorkerMessage = PopupGetStateMessage | PopupSavePairingMessage | PopupBindMessage | PopupUnbindMessage | PopupUnpairMessage;
+
+function popupMessage(value: unknown): PopupWorkerMessage | null {
+  if (value === null || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  switch (record.type) {
+    case "popup_get_state":
+    case "popup_unbind":
+    case "popup_unpair":
+      return { type: record.type } as PopupWorkerMessage;
+    case "popup_save_pairing":
+      if (
+        typeof record.workspace_id !== "string" || !WORKSPACE_ID_PATTERN.test(record.workspace_id) ||
+        typeof record.relay_port !== "number" || !Number.isInteger(record.relay_port) || record.relay_port < 1 || record.relay_port > 65535 ||
+        typeof record.relay_token !== "string" || record.relay_token.length < 1 || record.relay_token.length > 256 ||
+        typeof record.extension_id !== "string" || record.extension_id.length < 1 || record.extension_id.length > 256
+      ) return null;
+      return {
+        type: "popup_save_pairing",
+        workspace_id: record.workspace_id,
+        relay_port: record.relay_port,
+        relay_token: record.relay_token,
+        extension_id: record.extension_id,
+      };
+    case "popup_bind":
+      if (
+        typeof record.tab_id !== "number" || !Number.isInteger(record.tab_id) || record.tab_id < 0 ||
+        typeof record.conversation_id !== "string" || record.conversation_id.length < 1 || record.conversation_id.length > 2048
+      ) return null;
+      return { type: "popup_bind", tab_id: record.tab_id, conversation_id: record.conversation_id };
+    default:
+      return null;
+  }
+}
+
 interface ChromeLike {
-  storage: { local: { get(key: string): Promise<Record<string, unknown>> } };
+  storage: {
+    local: {
+      get(key: string): Promise<Record<string, unknown>>;
+      set(items: Record<string, unknown>): Promise<void>;
+      remove(key: string): Promise<void>;
+    };
+  };
   tabs: { sendMessage(tabId: number, message: unknown): Promise<unknown> };
-  runtime: { onMessage: { addListener(listener: (message: unknown, sender: { tab?: { id?: number } }) => void): void } };
+  runtime: {
+    onMessage: {
+      addListener(listener: (
+        message: unknown,
+        sender: { tab?: { id?: number } },
+        sendResponse: (response: unknown) => void,
+      ) => boolean | void): void;
+    };
+  };
 }
 declare const chrome: ChromeLike | undefined;
 
@@ -207,7 +293,7 @@ function browserDependencies(api: ChromeLike): RelayWorkerDependencies {
       const record = await api.storage.local.get(EXTENSION_RELAY_STATE_KEY);
       const saved = record[EXTENSION_RELAY_STATE_KEY] as Partial<ExtensionRelayState> | undefined;
       if (typeof saved?.bound_tab_id === "number") {
-        await api.tabs.sendMessage(saved.bound_tab_id, { type: "relay_status", state });
+        await api.tabs.sendMessage(saved.bound_tab_id, { type: "relay_status", state }).catch(() => undefined);
       }
     },
     setTimeout: (callback, delay) => globalThis.setTimeout(callback, delay),
@@ -218,11 +304,97 @@ function browserDependencies(api: ChromeLike): RelayWorkerDependencies {
   };
 }
 
+async function loadFullState(api: ChromeLike): Promise<ExtensionRelayState | null> {
+  const record = await api.storage.local.get(EXTENSION_RELAY_STATE_KEY);
+  const state = (record[EXTENSION_RELAY_STATE_KEY] ?? null) as ExtensionRelayState | null;
+  return validState(state) ? state : null;
+}
+
+async function restartRelayClient(client: ExtensionRelayClient): Promise<void> {
+  client.stop();
+  await client.start();
+}
+
+async function handlePopupMessage(
+  message: PopupWorkerMessage,
+  api: ChromeLike,
+  relayClient: ExtensionRelayClient,
+): Promise<{ ok: true; state?: PublicRelayState | null }> {
+  if (message.type === "popup_get_state") {
+    const state = await loadFullState(api);
+    return { ok: true, state: state ? publicState(state) : null };
+  }
+
+  if (message.type === "popup_save_pairing") {
+    const state: ExtensionRelayState = {
+      workspace_id: message.workspace_id,
+      workspace_name: message.workspace_id,
+      relay_port: message.relay_port,
+      relay_token: message.relay_token,
+      extension_id: message.extension_id,
+      bound_tab_id: null,
+      conversation_id: null,
+    };
+    if (!validState(state)) throw new Error("RELAY_STATE_INVALID");
+    await api.storage.local.set({ [EXTENSION_RELAY_STATE_KEY]: state });
+    await restartRelayClient(relayClient);
+    return { ok: true, state: publicState(state) };
+  }
+
+  const state = await loadFullState(api);
+  if (!state) throw new Error("RELAY_NOT_PAIRED");
+
+  if (message.type === "popup_bind") {
+    const next = { ...state, bound_tab_id: message.tab_id, conversation_id: message.conversation_id };
+    await api.storage.local.set({ [EXTENSION_RELAY_STATE_KEY]: next });
+    await restartRelayClient(relayClient);
+    return { ok: true, state: publicState(next) };
+  }
+
+  if (message.type === "popup_unbind") {
+    const next = { ...state, bound_tab_id: null, conversation_id: null };
+    await api.storage.local.set({ [EXTENSION_RELAY_STATE_KEY]: next });
+    await restartRelayClient(relayClient);
+    return { ok: true, state: publicState(next) };
+  }
+
+  const response = await fetch(`http://127.0.0.1:${state.relay_port}/unpair`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({
+      workspace_id: state.workspace_id,
+      extension_id: state.extension_id,
+      token: state.relay_token,
+    }),
+  });
+  if (!response.ok) throw new Error("RELAY_UNPAIR_REJECTED");
+  await api.storage.local.remove(EXTENSION_RELAY_STATE_KEY);
+  relayClient.stop();
+  return { ok: true, state: null };
+}
+
 if (typeof chrome !== "undefined") {
   const relayClient = new ExtensionRelayClient(browserDependencies(chrome));
-  chrome.runtime.onMessage.addListener((message, sender) => {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    const command = popupMessage(message);
+    if (command) {
+      if (sender.tab !== undefined) {
+        sendResponse({ ok: false, error: "RELAY_POPUP_COMMAND_REJECTED" });
+        return false;
+      }
+      void handlePopupMessage(command, chrome, relayClient)
+        .then((response) => sendResponse(response))
+        .catch((error: unknown) => sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : "RELAY_WORKER_ERROR",
+        }));
+      return true;
+    }
+
     const tabId = sender.tab?.id;
     if (typeof tabId === "number") relayClient.handleContentMessage(message, tabId);
+    return undefined;
   });
   void relayClient.start();
 }
