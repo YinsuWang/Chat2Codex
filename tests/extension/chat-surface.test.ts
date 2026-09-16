@@ -2,12 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ChatGptSurfaceAdapter } from "../../extension/src/chat-surface.js";
 class FakeHTMLElement {
   textContent = ""; isContentEditable = false; readonly events: string[] = []; readonly attributes = new Map<string, string>();
+  constructor(readonly tagName = "DIV") {}
   dispatchEvent(event: Event): boolean { this.events.push(event.type); return true; }
   getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
 }
-class FakeTextArea extends FakeHTMLElement { value = ""; }
-class FakeButton extends FakeHTMLElement { clicks = 0; click(): void { this.clicks += 1; } }
+class FakeTextArea extends FakeHTMLElement { value = ""; constructor() { super("TEXTAREA"); } }
+class FakeButton extends FakeHTMLElement { clicks = 0; constructor() { super("BUTTON"); } click(): void { this.clicks += 1; } }
 class FakeDocument {
   documentElement = {} as HTMLElement;
   constructor(readonly composers: FakeHTMLElement[], readonly sends: FakeButton[], readonly messages: FakeHTMLElement[] = []) {}
