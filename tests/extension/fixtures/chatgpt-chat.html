@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <body>
+    <main>
+      <article data-message-author-role="user">ordinary user text</article>
+      <article data-message-author-role="assistant">ordinary assistant prose</article>
+      <article data-message-author-role="assistant">[CHAT2CODEX]
+{"kind":"REVIEW"}</article>
+    </main>
+    <aside><textarea data-testid="unrelated-editor"></textarea></aside>
+    <form>
+      <div id="prompt-textarea" contenteditable="true" role="textbox" aria-label="Message ChatGPT"></div>
+      <button type="button" data-testid="send-button" aria-label="Send prompt">Send</button>
+    </form>
+  </body>
+</html>
