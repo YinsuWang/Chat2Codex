@@ -13,16 +13,10 @@ function dispatchInputEvents(element: HTMLElement): void { element.dispatchEvent
 export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
   constructor(private readonly dependencies: ChatGptSurfaceDependencies) {}
   async isSupported(): Promise<boolean> { return this.resolveSurface() !== null; }
-  async sendControlText(text: string): Promise<void> {
-    if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_TEXT_BYTES) throw new Error("RELAY_CONTROL_TEXT_TOO_LARGE");
-    const surface = this.resolveSurface(); if (!surface) throw new Error("RELAY_UI_UNSUPPORTED"); const { composer, send } = surface;
-    if (isTextArea(composer)) { const setter = typeof HTMLTextAreaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set : undefined; if (setter) setter.call(composer, text); else composer.value = text; }
-    else if (isEditable(composer)) composer.textContent = text; else throw new Error("RELAY_UI_UNSUPPORTED");
-    dispatchInputEvents(composer as HTMLElement); await Promise.resolve(); send.click();
-  }
+  async sendControlText(text: string): Promise<void> { if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_TEXT_BYTES) throw new Error("RELAY_CONTROL_TEXT_TOO_LARGE"); const surface = this.resolveSurface(); if (!surface) throw new Error("RELAY_UI_UNSUPPORTED"); const { composer, send } = surface; if (isTextArea(composer)) { const setter = typeof HTMLTextAreaElement !== "undefined" ? Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set : undefined; if (setter) setter.call(composer, text); else composer.value = text; } else if (isEditable(composer)) composer.textContent = text; else throw new Error("RELAY_UI_UNSUPPORTED"); dispatchInputEvents(composer as HTMLElement); await Promise.resolve(); send.click(); }
   observeAssistantControls(onControl: (text: string) => void): () => void {
-    const seenTexts = new Set<string>();
-    const scan = () => { const messages = [...this.dependencies.document.querySelectorAll(MESSAGE_SELECTOR)].slice(-MAX_MESSAGE_SCAN); for (const message of messages) { const control = controlTextFromAssistant(message); if (control === null || seenTexts.has(control)) continue; seenTexts.add(control); if (seenTexts.size > MAX_MESSAGE_SCAN) seenTexts.delete(seenTexts.values().next().value!); onControl(control); } };
+    const seenNodes = new WeakSet<Element>();
+    const scan = () => { const messages = [...this.dependencies.document.querySelectorAll(MESSAGE_SELECTOR)].slice(-MAX_MESSAGE_SCAN); for (const message of messages) { if (seenNodes.has(message)) continue; const control = controlTextFromAssistant(message); if (control === null) continue; seenNodes.add(message); onControl(control); } };
     scan(); const observer = this.dependencies.createObserver ? this.dependencies.createObserver(() => scan()) : new MutationObserver(() => scan()); observer.observe(this.dependencies.document.documentElement, { childList: true, subtree: true, characterData: true }); return () => observer.disconnect();
   }
   async conversationIdentity(): Promise<string | null> { const match = this.dependencies.location.pathname.match(/^\/c\/([^/?#]+)(?:\/|$)/); return match?.[1] ?? null; }
