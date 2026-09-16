@@ -34,8 +34,8 @@ function uniqueMatches<T extends Element>(document: Document, selectors: readonl
   return [...matches];
 }
 
-function isUsableSend(element: Element): element is HTMLButtonElement {
-  return element instanceof HTMLButtonElement && !element.disabled && element.getAttribute("aria-disabled") !== "true";
+function isSendButton(element: Element): element is HTMLButtonElement {
+  return element instanceof HTMLButtonElement;
 }
 
 function controlTextFromAssistant(element: Element): string | null {
@@ -75,6 +75,7 @@ export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
       throw new Error("RELAY_UI_UNSUPPORTED");
     }
     dispatchInputEvents(composer as HTMLElement);
+    await Promise.resolve();
     send.click();
   }
 
@@ -104,7 +105,7 @@ export class ChatGptSurfaceAdapter implements ChatSurfaceAdapter {
 
   private resolveSurface(): { composer: Element; send: HTMLButtonElement } | null {
     const composers = uniqueMatches(this.dependencies.document, COMPOSER_SELECTORS);
-    const sends = uniqueMatches(this.dependencies.document, SEND_SELECTORS).filter(isUsableSend);
+    const sends = uniqueMatches(this.dependencies.document, SEND_SELECTORS).filter(isSendButton);
     if (composers.length !== 1 || sends.length !== 1) return null;
     const composer = composers[0]!;
     const validComposer = composer instanceof HTMLTextAreaElement || (composer instanceof HTMLElement && composer.isContentEditable);
