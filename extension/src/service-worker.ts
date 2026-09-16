@@ -123,7 +123,7 @@ export class ExtensionRelayClient {
 
   private connect(): void {
     if (this.stopped || this.authFailed || !this.state) return;
-    const socket = this.deps.createSocket(`ws://127.0.0.1:${this.state.relay_port}`);
+    const socket = this.deps.createSocket(`ws://127.0.0.1:${this.state.relay_port}/relay`);
     this.socket = socket;
     this.authenticated = false;
     socket.onopen = () => {
