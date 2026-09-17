@@ -48,6 +48,8 @@ const CLIENT_FRAME_TYPES = new Set([
   "tab_heartbeat",
 ]);
 const HTTP_BODY_LIMIT = 8 * 1024;
+const PAIRING_RATE_LIMIT = 10;
+const PAIRING_RATE_WINDOW_MS = 60_000;
 const WORKSPACE_ID_PATTERN = /^ws_[a-f0-9]{16}$/;
 
 function isClientFrame(frame: RelayFrame): boolean {
@@ -163,6 +165,19 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
   const tokenStore = options.tokenStore ?? new RelayTokenStore();
   const statusStore = options.statusStore ?? new RelayStatusStore();
   const pairingService = new RelayPairingService(tokenStore);
+  const pairingRateByRemote = new Map<string, { count: number; resetAt: number }>();
+  const pairingRateAllowed = (request: IncomingMessage): boolean => {
+    const remote = request.socket.remoteAddress ?? "loopback";
+    const now = Date.now();
+    const entry = pairingRateByRemote.get(remote);
+    if (!entry || now > entry.resetAt) {
+      pairingRateByRemote.set(remote, { count: 1, resetAt: now + PAIRING_RATE_WINDOW_MS });
+      return true;
+    }
+    if (entry.count >= PAIRING_RATE_LIMIT) return false;
+    entry.count += 1;
+    return true;
+  };
   const server = createServer((request, response) => {
     void (async () => {
       let pathname: string;
@@ -194,6 +209,10 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
         const parsed = pairingRequest(body);
         if (!parsed || parsed.workspace_id !== options.workspaceId) {
           writeJson(response, 400, { error: "INVALID_PAIRING_REQUEST" });
+          return;
+        }
+        if (!pairingRateAllowed(request)) {
+          writeJson(response, 429, { error: "PAIRING_RATE_LIMITED" });
           return;
         }
         try {
