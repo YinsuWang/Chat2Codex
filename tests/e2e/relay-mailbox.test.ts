@@ -6,7 +6,7 @@ import WebSocket from "ws";
 
 import type { WorkspaceRecord } from "../../src/config/types.js";
 import { ControlService } from "../../src/control/service.js";
-import { formatControlText } from "../../src/protocol/text-format.js";
+import { formatControlText, parseControlText } from "../../src/protocol/text-format.js";
 import type { ExecutedMessage, PlanMessage, ReviewMessage } from "../../src/protocol/types.js";
 import { parseRelayFrame, serializeRelayFrame, type RelayFrame } from "../../src/relay/protocol.js";
 import { startRelayServer, type RelayRuntime } from "../../src/relay/runtime.js";
@@ -113,6 +113,16 @@ async function sendAssistantControl(
   });
 }
 
+function expectOutboundExecuted(frame: RelayFrame, envelopeId: string): void {
+  expect(frame).toMatchObject({
+    type: "outbound_control",
+    workspace_id: WORKSPACE,
+    envelope_id: envelopeId,
+  });
+  if (frame.type !== "outbound_control") throw new Error("EXPECTED_OUTBOUND_CONTROL");
+  expect(parseControlText(frame.text)).toEqual(executed);
+}
+
 function workspace(): WorkspaceRecord {
   return {
     workspace_id: WORKSPACE,
@@ -204,12 +214,7 @@ describe("durable mailbox relay E2E", () => {
     const token = await tokenStore.issue(WORKSPACE, EXTENSION);
     const first = await connectAndAuthenticate(token);
 
-    expect(await first.queue.next()).toMatchObject({
-      type: "outbound_control",
-      workspace_id: WORKSPACE,
-      envelope_id: envelope.id,
-      text: formatControlText(executed),
-    });
+    expectOutboundExecuted(await first.queue.next(), envelope.id);
     first.socket.send(serializeRelayFrame({
       type: "outbound_sent",
       workspace_id: WORKSPACE,
@@ -219,12 +224,7 @@ describe("durable mailbox relay E2E", () => {
 
     first.socket.terminate();
     const second = await connectAndAuthenticate(token);
-    expect(await second.queue.next()).toMatchObject({
-      type: "outbound_control",
-      workspace_id: WORKSPACE,
-      envelope_id: envelope.id,
-      text: formatControlText(executed),
-    });
+    expectOutboundExecuted(await second.queue.next(), envelope.id);
 
     await sendAssistantControl(
       second.socket,
