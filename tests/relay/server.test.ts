@@ -378,6 +378,27 @@ describe("loopback relay server", () => {
     expect(exhausted.status).toBe(401);
   });
 
+  it("rate-limits pairing attempts through the HTTP surface", async () => {
+    const body = {
+      workspace_id: WORKSPACE,
+      code: "AAAAAAAA",
+      extension_id: EXTENSION,
+    };
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await postJson("/pair", body);
+      expect(response.status).toBe(401);
+    }
+
+    const limited = await postJson("/pair", body);
+    expect(limited.status).toBe(429);
+
+    const realNow = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(realNow + 60_000 + 1);
+    const afterWindow = await postJson("/pair", body);
+    expect(afterWindow.status).toBe(401);
+  });
+
   it("enforces pairing TTL through the HTTP surface", async () => {
     const pairing = new RelayPairingService(tokenStore);
     const session = await pairing.create(WORKSPACE);
