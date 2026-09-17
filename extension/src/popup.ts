@@ -48,6 +48,24 @@ export function derivePopupState(state: PopupRelayState | null, error: string | 
   return "PAIRED_BOUND";
 }
 
+export function derivePopupActionVisibility(view: PopupView): {
+  pair: boolean;
+  paired: boolean;
+  bind: boolean;
+  unbind: boolean;
+} {
+  const paired = view.relay !== null;
+  const bound = paired
+    && view.relay?.bound_tab_id !== null
+    && view.relay?.conversation_id !== null;
+  return {
+    pair: !paired,
+    paired,
+    bind: paired,
+    unbind: bound,
+  };
+}
+
 function validPort(port: number): boolean {
   return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
@@ -211,14 +229,15 @@ function visible(elementId: string, show: boolean): void {
 }
 
 function render(view: PopupView): void {
+  const actions = derivePopupActionVisibility(view);
   text("relay-state", view.state);
   text("relay-error", view.error ?? "");
   text("workspace-summary", view.relay?.workspace_id ?? "Not paired");
   text("binding-summary", view.relay?.conversation_id ?? "No ChatGPT conversation bound");
-  visible("pair-panel", view.relay === null);
-  visible("paired-panel", view.relay !== null);
-  visible("bind-button", view.relay !== null && view.state !== "PAIRED_BOUND");
-  visible("unbind-button", view.relay !== null && view.state === "PAIRED_BOUND");
+  visible("pair-panel", actions.pair);
+  visible("paired-panel", actions.paired);
+  visible("bind-button", actions.bind);
+  visible("unbind-button", actions.unbind);
 }
 
 export function initializePopup(): void {
