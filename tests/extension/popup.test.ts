@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   PopupController,
+  derivePopupActionVisibility,
   derivePopupState,
   type PopupControllerDependencies,
   type PopupRelayState,
@@ -59,6 +60,14 @@ describe("extension pairing popup", () => {
     expect(derivePopupState(UNBOUND_STATE, null)).toBe("PAIRED_NO_TAB");
     expect(derivePopupState(BOUND_STATE, null)).toBe("PAIRED_BOUND");
     expect(derivePopupState(BOUND_STATE, "boom")).toBe("ERROR");
+  });
+
+  it("keeps the explicit bind action available so a bound tab can be replaced", () => {
+    expect(derivePopupActionVisibility({
+      state: "PAIRED_BOUND",
+      relay: BOUND_STATE,
+      error: null,
+    })).toEqual({ pair: false, paired: true, bind: true, unbind: true });
   });
 
   it("pairs through loopback and never exposes the raw relay token in popup state", async () => {
