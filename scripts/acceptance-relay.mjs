@@ -124,6 +124,7 @@ async function gitStatus(root) {
     encoding: "utf8",
     windowsHide: true,
     maxBuffer: 4 * 1024 * 1024,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
   });
   return result.stdout;
 }
