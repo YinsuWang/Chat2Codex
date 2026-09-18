@@ -2,138 +2,189 @@
 
 Chat2Codex V1 separates two paths:
 
-- **Data plane:** ChatGPT reads the local workspace and execution evidence through a read-only MCP bridge.
-- **Control plane:** Codex Desktop's in-app-browser relay moves small `[CHAT2CODEX]` messages between ChatGPT and the local Supervisor.
+- **Data plane:** ChatGPT reads workspace state and execution evidence through a read-only MCP bridge.
+- **Control plane:** the **Browser Extension Relay** moves small `[CHAT2CODEX]` messages between one explicitly bound ChatGPT Web conversation and the local Supervisor.
 
-Codex CLI remains the only project executor.
+Codex CLI remains the only project executor. Codex Desktop IAB is an experimental fallback/recovery transport, not the default path.
 
 ## 1. Prerequisites
 
-Install:
+Install Node.js 20 or newer, Git, pnpm (Corepack is fine), OpenAI Codex CLI, and Chrome/Edge 116+.
 
-- Node.js 20 or newer
-- Git
-- pnpm (Corepack is fine)
-- OpenAI Codex CLI
-- Codex Desktop for the V1 automatic ChatGPT UI relay
+Build Chat2Codex:
 
-Then build Chat2Codex:
-
-```bash
+~~~bash
 corepack enable
 pnpm install
 pnpm build
-```
+~~~
+
+For an extension-only rebuild:
+
+~~~bash
+pnpm build:extension
+~~~
+
+The unpacked extension output is `dist-extension/`. Do not load the `extension/` source directory.
 
 During development you may run commands as `node <chat2codex-checkout>/bin/chat2codex.js ...`. A global link/package install can provide the shorter `chat2codex` command.
 
-## 2. Register the target repository
+## 2. Install the Browser Extension Relay
 
-Run this inside the project ChatGPT/Codex should work on, not inside the Chat2Codex source repository:
+Chrome:
 
-```bash
-chat2codex init . --json
-```
+~~~text
+chrome://extensions
+~~~
 
-Keep the returned `workspace_id`. Absolute machine paths stay in the local Chat2Codex state directory and are not committed to the target repository.
+Edge:
 
-## 3. Install the Desktop relay Skill
+~~~text
+edge://extensions
+~~~
 
-Install `skill/SKILL.md` as `chat2codex-relay/SKILL.md` in a Codex-recognized Skill directory. Common locations are:
+Enable **Developer mode**, choose **Load unpacked**, and select:
 
-```text
-~/.codex/skills/chat2codex-relay/SKILL.md
-~/.agents/skills/chat2codex-relay/SKILL.md
-```
+~~~text
+<chat2codex-checkout>/dist-extension
+~~~
 
-On Windows, `~` is your user profile directory.
+The extension is intentionally narrow: ChatGPT Web, extension-local storage/tabs for explicit binding, and loopback HTTP/WebSocket access for local pairing. Do **not** enable remote debugging, dangerous Chrome flags, external browser automation, cookie/history/debugger permissions, or broad host permissions.
 
-## 4. Start the local Supervisor and MCP bridge
+See [extension-install.md](extension-install.md) for the focused browser installation checklist.
 
-```bash
+## 3. Register the target repository
+
+Run against the project ChatGPT/Codex should work on:
+
+~~~bash
+chat2codex init <target-repository> --json
+~~~
+
+Keep the returned `workspace_id`. Absolute machine paths remain in Chat2Codex's machine-local state and are not written into project control messages.
+
+## 4. Start the Supervisor, MCP bridge, and browser relay
+
+~~~bash
 chat2codex start -w <target-repository> --json
-```
+~~~
 
-The command starts:
+Keep this process running. It owns, under the daemon lock:
 
-- the durable Supervisor loop,
-- the Codex CLI execution adapter,
-- a read-only MCP server bound only to `127.0.0.1`.
+- the durable Supervisor loop;
+- the Codex CLI execution adapter;
+- the read-only MCP bridge on `127.0.0.1`;
+- the Browser Extension Relay on `127.0.0.1`.
 
-The bridge prefers port `48765` and falls back to an ephemeral loopback port if it is occupied. `chat2codex status -w <target-repository> --json` reports the active local port.
+The JSON startup output reports the bridge and relay ports. The MCP bridge prefers `48765`; the relay prefers `48766`; either may fall back to an ephemeral loopback port if its preferred port is occupied.
 
-## 5. Connect ChatGPT to the read-only MCP bridge
+## 5. Create a one-time extension pairing code
 
-ChatGPT does not connect directly to localhost MCP servers. Use a supported authenticated remote-connection path for your ChatGPT account/environment.
+In a second terminal:
 
-Preferred where available:
+~~~bash
+chat2codex relay pair -w <target-repository> --json
+~~~
 
-- OpenAI Secure MCP Tunnel for a private/local MCP server.
+The command returns the workspace ID, short one-time pairing code, expiry, and remaining attempts. It does not print the long-lived relay token.
 
-Compatibility path:
+In the extension popup enter:
 
-- the same read-only remote-connector/tunnel pattern already proven by `codex-with-chatgpt`, pointed at Chat2Codex's MCP endpoint through an authenticated transport.
+1. the relay port from `chat2codex start ... --json` or `chat2codex relay status ... --json`;
+2. the exact `workspace_id`;
+3. the one-time pairing code.
 
-Chat2Codex V1 intentionally does **not** expose an unauthenticated public listener and does not hard-code Cloudflare, a domain, a VPS, or router port forwarding into the Supervisor. The core bridge remains loopback-only; remote authentication/tunneling is a replaceable boundary.
+Choose **Pair**. If the code expires or is exhausted, create a new one; do not reuse an old code.
 
-If your ChatGPT plan/workspace UI does not offer a supported custom read-only MCP connection, the local execution pieces still work, but the fully automatic ChatGPT data-plane loop cannot be considered configured yet.
+## 6. Explicitly bind the intended ChatGPT conversation
 
-## 6. Bind one ChatGPT chat/project to the workspace
+Open the intended `https://chatgpt.com/...` conversation in the active tab. Open the extension popup and click:
 
-Use `docs/protocol.md` as the boot contract. The bound ChatGPT conversation must:
+~~~text
+Bind current ChatGPT tab
+~~~
 
-1. use only the connector for this workspace,
-2. call `workspace_info` before planning,
-3. verify the expected `workspace_id`,
-4. default to `guided` mode,
-5. review real diff/execution evidence after `EXECUTED`.
+Binding is explicit:
 
-Do not upload the repository into the ChatGPT Project as a substitute for MCP.
+- a non-`chatgpt.com` tab is rejected;
+- one tab binds to at most one workspace;
+- one workspace has at most one active bound tab in V1;
+- switching to another conversation is not silently treated as the same binding.
 
-## 7. Start the Codex Desktop relay
+Repository files, diffs, logs, command output, and credentials are never transported through the browser relay.
 
-Load the `chat2codex-relay` Skill in Codex Desktop. It must use the built-in in-app browser, one ChatGPT tab, and the local commands:
+## 7. Check Browser Relay status
 
-```bash
-chat2codex status -w <target-repository> --json
-chat2codex control next --workspace <workspace_id> --json
-chat2codex control ingest --workspace <workspace_id> --stdin
-chat2codex control ack --workspace <workspace_id> --id <envelope_id>
-```
+~~~bash
+chat2codex relay status -w <target-repository> --json
+~~~
 
-The relay carries control messages only. Repository files, diffs, and logs remain on the MCP data plane.
+A ready local relay should show `relay_running: true`, `host: "127.0.0.1"`, `paired: true`, `bound_tab_seen: true`, and a recent `last_heartbeat_at`.
 
-## 8. Run doctor
+The bound-tab heartbeat is refreshed only when the service worker can verify that the bound ChatGPT content script is still on the same conversation. The Task 10 gate treats heartbeats older than 90 seconds as stale.
 
-```bash
+## 8. Run the read-only local Browser Relay acceptance gate
+
+First build:
+
+~~~bash
+pnpm build
+~~~
+
+Then run:
+
+~~~bash
+node scripts/acceptance-relay.mjs --workspace <target-repository>
+~~~
+
+For machine-readable output:
+
+~~~bash
+node scripts/acceptance-relay.mjs --workspace <target-repository> --json
+~~~
+
+The script is read-only. It does not start/stop services, pair/unpair, mutate Supervisor/mailbox/task/worktree state, or edit the primary working tree. It checks:
+
+- registered workspace identity;
+- live Supervisor daemon;
+- healthy loopback MCP bridge;
+- live loopback relay server;
+- paired extension;
+- recent bound-tab heartbeat;
+- the exact read-only MCP tool invariant;
+- the built unpacked extension artifact and least-privilege manifest;
+- that primary working-tree status is unchanged while the checks run.
+
+A failure returns a non-zero exit code. `--help` does not require a prebuilt `dist/`.
+
+## 9. Read-only MCP connection
+
+ChatGPT cannot directly call a localhost MCP server. Complete end-to-end review therefore requires a supported authenticated remote connection to the loopback MCP data plane.
+
+**Task 10 does not implement Remote MCP.** Do not weaken the local listener, expose an unauthenticated public endpoint, or add broad browser permissions to compensate. Browser relay and Remote MCP are independent subsystems.
+
+The bound ChatGPT conversation should follow [protocol.md](protocol.md): verify `workspace_info`, emit bounded PLAN/REVIEW control messages, and review real `git_diff`, `execution_summary`, `test_status`, and readable `execution_output` evidence through MCP.
+
+## 10. Doctor and fallback transports
+
+~~~bash
 chat2codex doctor -w <target-repository> --json
-```
+~~~
 
-A ready automatic V1 setup should report healthy prerequisites, a registered Git workspace, a live bridge/daemon, the read-only tool registry, and the installed Desktop relay Skill.
+`doctor` currently retains a legacy `desktop_relay_skill` check for the experimental Desktop IAB fallback. Task 10 intentionally does not refactor that behavior. A Browser Relay setup should therefore use `relay status` plus `scripts/acceptance-relay.mjs` as its dedicated acceptance gate.
 
-## 9. Acceptance check
+If the Browser Extension Relay is unavailable, the retained Desktop IAB Skill or the manual `chat2codex control ...` commands may be used for recovery. They are not Browser Relay acceptance prerequisites.
 
-In the bound ChatGPT Chat, request a small code change. Expected sequence:
+## 11. Unpair
 
-```text
-user request
-→ workspace_info verification
-→ PLAN (guided by default)
-→ Supervisor inbox
-→ isolated Git worktree
-→ codex exec --json
-→ persisted execution evidence
-→ EXECUTED
-→ ChatGPT reads diff/test evidence through MCP
-→ REVIEW/PASS or REVIEW/REVISE
-→ DONE after PASS
-```
+~~~bash
+chat2codex relay unpair -w <target-repository> --json
+~~~
 
-The primary project working tree must remain unchanged by the automatic task.
+Then explicitly pair and bind again if needed.
 
-## V1 limitations
+## 12. What CI proves—and does not prove
 
-- The automatic UI relay requires Codex Desktop. A CLI-only automatic ChatGPT relay needs a future `ControlTransport`.
-- Chat2Codex's own bridge is loopback-only; remote authenticated MCP connectivity is deliberately delegated to Secure MCP Tunnel or another compatible transport.
-- V1 does not auto-push, auto-merge, or silently remove reviewed worktrees.
-- ChatGPT never receives project shell/write/delete/commit/push tools from Chat2Codex.
+CI runs Node 20 and Node 22 verification, builds `dist-extension/`, asserts the required extension files exist, and uploads the Node 22 built directory as `chat2codex-extension-unpacked`.
+
+CI does **not** prove a real authenticated ChatGPT Web session, a real browser tab binding, or a complete remote MCP path. Those remain final real-machine acceptance requirements before declaring Complete V1.
