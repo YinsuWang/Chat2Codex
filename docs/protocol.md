@@ -1,6 +1,6 @@
 # Chat2Codex Control Protocol
 
-ChatGPT is the planning/code-design/review layer. Codex CLI is the local execution layer. The Supervisor owns durable task state. The Desktop relay transports bounded control messages and does not carry repository content.
+ChatGPT is the planning/code-design/review layer. Codex CLI is the local execution layer. The Supervisor owns durable task state. The Browser Extension Relay is the default automatic V1 control transport; the Desktop IAB relay is an experimental fallback. Control transports carry bounded protocol messages only and never repository content.
 
 ## Framing
 
