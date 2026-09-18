@@ -58,8 +58,7 @@ describe("content script binding heartbeat", () => {
       new FakeDocument() as unknown as Document,
       new URL("https://chatgpt.com/c/other-conversation") as unknown as Location,
     );
-    await Promise.resolve();
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sent).toEqual([]);
     stop();
