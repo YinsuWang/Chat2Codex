@@ -1,9 +1,11 @@
 ---
 name: chat2codex-relay
-description: Use when a Codex Desktop session must relay Chat2Codex control messages between a bound ChatGPT chat and the local Chat2Codex Supervisor.
+description: Experimental fallback/recovery transport for relaying Chat2Codex control messages through Codex Desktop IAB when the default Browser Extension Relay is unavailable.
 ---
 
-# Chat2Codex Relay
+# Chat2Codex Desktop IAB Relay — Experimental Fallback
+
+> **Fallback only.** The Browser Extension Relay is the default automatic V1 control transport. Use this Skill only when the extension path is unavailable or for deliberate recovery. Installing this Skill is not a Task 10 Browser Relay acceptance prerequisite.
 
 This Desktop session is a transport, not the coding decision-maker.
 
