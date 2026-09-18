@@ -323,7 +323,6 @@ export function createRelayServer(options: RelayServerOptions): RelayServerHost 
       }
 
       if (frame.type === "keepalive") {
-        await statusStore.recordHeartbeat(options.workspaceId, context.extension_id, null);
         await sendPending();
         return;
       }

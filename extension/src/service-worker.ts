@@ -44,6 +44,7 @@ export interface RelayWorkerDependencies {
   loadState(key: string): Promise<ExtensionRelayState | null>;
   createSocket(url: string): RelaySocket;
   sendToTab(tabId: number, message: unknown): Promise<void>;
+  conversationIdentity(tabId: number): Promise<string | null>;
   publishStatus(status: RelayStatus): Promise<void>;
   setTimeout(callback: () => void, delay: number): unknown;
   clearTimeout(handle: unknown): void;
@@ -177,10 +178,44 @@ export class ExtensionRelayClient {
   private startKeepalive(): void {
     if (this.keepaliveTimer !== null) this.deps.clearInterval(this.keepaliveTimer);
     this.keepaliveTimer = this.deps.setInterval(() => {
-      if (!this.state || !this.authenticated || this.socket?.readyState !== SOCKET_OPEN) return;
-      const frame: RelayClientFrame = { type: "keepalive", workspace_id: this.state.workspace_id, at: this.deps.now().toISOString() };
-      this.socket.send(serializeRelayClientFrame(frame));
+      void this.sendKeepalive();
     }, KEEPALIVE_MS);
+  }
+
+  private async sendKeepalive(): Promise<void> {
+    const state = this.state;
+    const socket = this.socket;
+    if (!state || !this.authenticated || socket?.readyState !== SOCKET_OPEN) return;
+
+    const keepalive: RelayClientFrame = {
+      type: "keepalive",
+      workspace_id: state.workspace_id,
+      at: this.deps.now().toISOString(),
+    };
+    socket.send(serializeRelayClientFrame(keepalive));
+
+    if (state.bound_tab_id === null || state.conversation_id === null) return;
+
+    let currentConversation: string | null = null;
+    try {
+      currentConversation = await this.deps.conversationIdentity(state.bound_tab_id);
+    } catch {
+      return;
+    }
+    if (
+      this.state !== state ||
+      this.socket !== socket ||
+      !this.authenticated ||
+      socket.readyState !== SOCKET_OPEN ||
+      currentConversation !== state.conversation_id
+    ) return;
+
+    const heartbeat: RelayClientFrame = {
+      type: "tab_heartbeat",
+      workspace_id: state.workspace_id,
+      conversation_id: currentConversation,
+    };
+    socket.send(serializeRelayClientFrame(heartbeat));
   }
 
   private async failClosed(socket: RelaySocket, status: RelayStatus): Promise<void> {
@@ -289,6 +324,12 @@ function browserDependencies(api: ChromeLike): RelayWorkerDependencies {
     },
     createSocket: (url) => new WebSocket(url) as unknown as RelaySocket,
     sendToTab: async (tabId, message) => { await api.tabs.sendMessage(tabId, message); },
+    conversationIdentity: async (tabId) => {
+      const response = await api.tabs.sendMessage(tabId, { type: "chat2codex_conversation_identity" });
+      if (response === null || typeof response !== "object") return null;
+      const conversationId = (response as { conversation_id?: unknown }).conversation_id;
+      return typeof conversationId === "string" ? conversationId : null;
+    },
     publishStatus: async (state) => {
       const record = await api.storage.local.get(EXTENSION_RELAY_STATE_KEY);
       const saved = record[EXTENSION_RELAY_STATE_KEY] as Partial<ExtensionRelayState> | undefined;
