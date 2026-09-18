@@ -1,5 +1,7 @@
 # Chat2Codex V1 Control Transport Amendment
 
+> **Historical transport note:** This 2026-09-10 document records the earlier Desktop-IAB default. The approved 2026-09-14 Browser Extension Relay design supersedes that transport choice: Browser Extension Relay is the V1 default, Desktop IAB is experimental fallback/recovery. The remaining text is retained as historical implementation context.
+
 Date: 2026-09-10  
 Status: Architecture clarification  
 Applies to: `docs/superpowers/specs/2026-09-10-chat2codex-v1-design.md`

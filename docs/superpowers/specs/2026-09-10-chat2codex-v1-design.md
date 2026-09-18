@@ -1,5 +1,7 @@
 # Chat2Codex V1 Architecture Design
 
+> **Historical transport note:** This 2026-09-10 architecture baseline predates the approved 2026-09-14 integration transport design. For the current V1 control path, Browser Extension Relay is the default automatic transport; Codex Desktop IAB is experimental fallback/recovery. The historical text below is retained for Core architecture context.
+
 Date: 2026-09-10  
 Status: Approved architecture baseline  
 Repository: `YinsuWang/Chat2Codex`

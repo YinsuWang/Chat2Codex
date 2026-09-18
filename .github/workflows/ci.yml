@@ -33,5 +33,24 @@ jobs:
         run: pnpm test
       - name: Build
         run: pnpm build
+      - name: Verify unpacked extension artifact
+        shell: bash
+        run: |
+          test -s dist-extension/manifest.json
+          test -s dist-extension/service-worker.js
+          test -s dist-extension/content-script.js
+          test -s dist-extension/popup.js
+          test -s dist-extension/popup.html
+          node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('dist-extension/manifest.json','utf8')); if(m.manifest_version!==3 || m.background?.service_worker!=='service-worker.js' || m.action?.default_popup!=='popup.html') process.exit(1)"
       - name: CLI smoke
         run: node bin/chat2codex.js --help
+      - name: Relay acceptance help smoke
+        run: node scripts/acceptance-relay.mjs --help
+      - name: Upload unpacked extension
+        if: ${{ matrix.node == 22 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat2codex-extension-unpacked
+          path: dist-extension/
+          if-no-files-found: error
+          retention-days: 14

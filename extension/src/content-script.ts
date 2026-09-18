@@ -154,7 +154,9 @@ export function initializeContentScript(api: ChromeLike, documentRef: Document, 
     try {
       const state = await loadState();
       const conversationId = await surface.conversationIdentity();
-      if (state && conversationId) await sendHeartbeat(state, conversationId);
+      if (state && conversationMatches(state, conversationId)) {
+        await sendHeartbeat(state, conversationId);
+      }
     } catch {
       // Initial heartbeat is best effort.
     }

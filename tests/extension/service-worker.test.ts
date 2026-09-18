@@ -41,6 +41,7 @@ function fixture(state: ExtensionRelayState | null = STATE) {
     loadState: vi.fn(async () => state),
     createSocket: vi.fn((url) => { expect(url).toBe("ws://127.0.0.1:48765/relay"); return socket; }),
     sendToTab: vi.fn(async (tabId, message) => { forwarded.push({ tabId, message }); }),
+    conversationIdentity: vi.fn(async () => state?.conversation_id ?? null),
     publishStatus: vi.fn(async (status) => { statuses.push(status); }),
     setTimeout: vi.fn((callback, delay) => { timers.push({ callback, delay, interval: false }); return timers.length; }),
     clearTimeout: vi.fn(),
@@ -69,7 +70,29 @@ describe("extension relay service worker", () => {
     await Promise.resolve();
     expect(timers.filter((timer) => timer.interval).map((timer) => timer.delay)).toEqual([20_000]);
     timers.find((timer) => timer.interval)!.callback();
-    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({ type: "keepalive", workspace_id: STATE.workspace_id, at: NOW });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(socket.sent.slice(1).map((value) => JSON.parse(value))).toEqual([
+      { type: "keepalive", workspace_id: STATE.workspace_id, at: NOW },
+      { type: "tab_heartbeat", workspace_id: STATE.workspace_id, conversation_id: STATE.conversation_id },
+    ]);
+  });
+
+  it("does not report a tab heartbeat when the bound tab is missing or on another conversation", async () => {
+    const { client, socket, timers, deps } = fixture();
+    vi.mocked(deps.conversationIdentity).mockResolvedValue("conversation-2");
+    await client.start();
+    socket.open();
+    socket.message({ type: "hello_ok", workspace_id: STATE.workspace_id, server_time: NOW });
+    await Promise.resolve();
+
+    timers.find((timer) => timer.interval)!.callback();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(socket.sent.slice(1).map((value) => JSON.parse(value))).toEqual([
+      { type: "keepalive", workspace_id: STATE.workspace_id, at: NOW },
+    ]);
   });
 
   it("uses bounded exponential reconnect delays", () => {

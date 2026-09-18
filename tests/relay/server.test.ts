@@ -285,6 +285,28 @@ describe("loopback relay server", () => {
     expect((await control.receiveInbound())?.message).toEqual(review);
   });
 
+  it("does not treat a generic relay keepalive as a bound-tab heartbeat", async () => {
+    const token = await tokenStore.issue(WORKSPACE, EXTENSION);
+    const { socket, queue } = await connect();
+    await authenticate(socket, queue, token);
+
+    socket.send(
+      serializeRelayFrame({
+        type: "keepalive",
+        workspace_id: WORKSPACE,
+        at: new Date().toISOString(),
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(await new RelayStatusStore().get(WORKSPACE)).toMatchObject({
+      workspace_id: WORKSPACE,
+      extension_id: EXTENSION,
+      bound_tab_seen: false,
+      last_heartbeat_at: null,
+    });
+  });
+
   it("records tab heartbeat without putting browser data in the control mailbox", async () => {
     const token = await tokenStore.issue(WORKSPACE, EXTENSION);
     const { socket, queue } = await connect();
